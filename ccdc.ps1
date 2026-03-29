@@ -56,12 +56,38 @@ $global:CCDC_SCORED_TCP = ""
 $global:CCDC_SCORED_UDP = ""
 $global:CCDC_IS_DC = $false
 
-# ── Global Flags ──
+# ── Global Flags (support both -Flag and --flag styles) ──
 $global:CCDC_HELP = $Help.IsPresent
 $global:CCDC_UNDO = $Undo.IsPresent
 $global:CCDC_NO_PROMPT = $NoPrompt.IsPresent
 $global:CCDC_DRY_RUN = $DryRun.IsPresent
 $global:CCDC_VERBOSE = $VerbosePreference -ne 'SilentlyContinue'
+
+# Parse --flags from Category and RemainingArgs
+$allArgs = @()
+if ($Category -match '^--') { $allArgs += $Category }
+if ($RemainingArgs) { $allArgs += $RemainingArgs }
+$filteredArgs = @()
+foreach ($arg in $allArgs) {
+    switch ($arg) {
+        '--help'      { $global:CCDC_HELP = $true }
+        '-h'          { $global:CCDC_HELP = $true }
+        '--undo'      { $global:CCDC_UNDO = $true }
+        '--no-prompt' { $global:CCDC_NO_PROMPT = $true }
+        '--dry-run'   { $global:CCDC_DRY_RUN = $true }
+        '--verbose'   { $global:CCDC_VERBOSE = $true }
+        '-v'          { $global:CCDC_VERBOSE = $true }
+        '--version'   { Write-Host "ccdc-cli $($global:CCDC_VERSION)"; exit 0 }
+        default       { $filteredArgs += $arg }
+    }
+}
+# If Category was a --flag, shift args
+if ($Category -match '^--' -or $Category -eq '-h' -or $Category -eq '-v') {
+    $Category = ""
+}
+if ($RemainingArgs) {
+    $RemainingArgs = $filteredArgs
+}
 
 # ── Import Phase 0 Modules ──
 Import-Module (Join-Path $global:CCDC_DIR "lib/windows/common.psm1") -Force -DisableNameChecking
@@ -102,11 +128,6 @@ if (-not $Category) {
     exit 1
 }
 
-# ── Version ──
-if ($Category -eq '--version' -or $Category -eq 'version') {
-    Write-Host "ccdc-cli $($global:CCDC_VERSION)"
-    exit 0
-}
 
 # ── Alias Resolution ──
 $resolvedCategory = switch ($Category) {

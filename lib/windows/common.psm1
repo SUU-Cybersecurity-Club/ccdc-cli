@@ -136,16 +136,17 @@ function Show-CcdcUsage {
     Write-Host "  comp-start         Run full competition checklist"
     Write-Host ""
     Write-Host "Global Flags:" -ForegroundColor White
-    Write-Host "  -Help              Show help"
-    Write-Host "  -Undo              Undo last run of a command"
-    Write-Host "  -NoPrompt          Skip confirmation prompts"
-    Write-Host "  -DryRun            Show what would be done"
-    Write-Host "  -Verbose           Verbose output"
+    Write-Host "  --help, -h         Show help"
+    Write-Host "  --undo             Undo last run of a command"
+    Write-Host "  --no-prompt        Skip confirmation prompts"
+    Write-Host "  --dry-run          Show what would be done"
+    Write-Host "  --verbose, -v      Verbose output"
+    Write-Host "  --version          Show version"
     Write-Host ""
     Write-Host "Setup:" -ForegroundColor White
     Write-Host "  ccdc config setup-completions    Install 'ccdc' command and tab completion"
     Write-Host ""
-    Write-Host "Run '.\ccdc.ps1 <category> -Help' for command-specific help."
+    Write-Host "Run 'ccdc <category> --help' for command-specific help."
 }
 
 Export-ModuleMember -Function Write-CcdcLog, Test-CcdcAdmin, Confirm-CcdcAction,
