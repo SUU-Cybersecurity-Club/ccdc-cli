@@ -33,6 +33,12 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
 # ── Constants ──
 $script:CCDC_VERSION = "0.1.0"
 $script:CCDC_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $script:CCDC_DIR) {
+    $script:CCDC_DIR = Split-Path -Parent $PSCommandPath
+}
+if (-not $script:CCDC_DIR) {
+    $script:CCDC_DIR = $PWD.Path
+}
 $script:CCDC_CONF = Join-Path $script:CCDC_DIR ".ccdc.conf"
 
 # ── Global State ──
