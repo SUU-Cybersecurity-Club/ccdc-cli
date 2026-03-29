@@ -3,11 +3,18 @@
 # Linux entry point
 set -euo pipefail
 
-# ── Require Root ──
-if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+# ── Require Root (skip for --help, --version, --setup-completions) ──
+_needs_root=true
+for _arg in "$@"; do
+    case "$_arg" in
+        --help|-h|--version|--setup-completions) _needs_root=false; break ;;
+    esac
+done
+if [[ "$_needs_root" == true && "${EUID:-$(id -u)}" -ne 0 ]]; then
     echo -e "\033[0;31m[ERROR]\033[0m ccdc-cli requires root. Run with: sudo ./ccdc.sh $*"
     exit 1
 fi
+unset _needs_root _arg
 
 # ── Constants ──
 CCDC_VERSION="0.1.0"
@@ -127,8 +134,10 @@ if [[ -z "$category" ]]; then
     exit 1
 fi
 
-# ── Initialize Logging (after config sets CCDC_LOG) ──
-ccdc_log_init
+# ── Initialize Logging (skip for --help to avoid mkdir on read-only systems) ──
+if [[ "$CCDC_HELP" != true ]]; then
+    ccdc_log_init
+fi
 
 # ── Route to Module ──
 case "$category" in
