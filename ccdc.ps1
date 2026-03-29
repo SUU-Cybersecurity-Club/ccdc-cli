@@ -54,6 +54,8 @@ $global:CCDC_WAZUH_IP = ""
 $global:CCDC_SPLUNK_IP = ""
 $global:CCDC_SCORED_TCP = ""
 $global:CCDC_SCORED_UDP = ""
+$global:CCDC_BACKUP_USERNAME = ""
+$global:CCDC_PASSWD_KEEP_UNLOCKED = ""
 $global:CCDC_IS_DC = $false
 
 # ── Global Flags (support both -Flag and --flag styles) ──

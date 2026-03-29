@@ -22,6 +22,8 @@ ccdc_config_load() {
                 splunk_server_ip) CCDC_SPLUNK_IP="$value" ;;
                 scored_ports_tcp) CCDC_SCORED_TCP="$value" ;;
                 scored_ports_udp) CCDC_SCORED_UDP="$value" ;;
+                backup_username)       CCDC_BACKUP_USERNAME="$value" ;;
+                passwd_keep_unlocked)  CCDC_PASSWD_KEEP_UNLOCKED="$value" ;;
             esac
         done < "$CCDC_CONF"
     fi
@@ -32,6 +34,8 @@ ccdc_config_load() {
     : "${CCDC_SPLUNK_IP:=}"
     : "${CCDC_SCORED_TCP:=}"
     : "${CCDC_SCORED_UDP:=}"
+    : "${CCDC_BACKUP_USERNAME:=printer}"
+    : "${CCDC_PASSWD_KEEP_UNLOCKED:=}"
     CCDC_UNDO_DIR="${CCDC_BACKUP_DIR}/.ccdc-undo"
     CCDC_LOG="${CCDC_BACKUP_DIR}/ccdc.log"
 }
@@ -54,6 +58,8 @@ wazuh_server_ip=${CCDC_WAZUH_IP:-}
 splunk_server_ip=${CCDC_SPLUNK_IP:-}
 scored_ports_tcp=${CCDC_SCORED_TCP:-}
 scored_ports_udp=${CCDC_SCORED_UDP:-}
+backup_username=${CCDC_BACKUP_USERNAME:-printer}
+passwd_keep_unlocked=${CCDC_PASSWD_KEEP_UNLOCKED:-}
 EOF
     ccdc_log success "Config written to ${CCDC_CONF}"
 }
@@ -118,6 +124,8 @@ ccdc_config_show() {
     echo "  splunk_server  = ${CCDC_SPLUNK_IP:-<not set>}"
     echo "  scored_tcp     = ${CCDC_SCORED_TCP:-<not set>}"
     echo "  scored_udp     = ${CCDC_SCORED_UDP:-<not set>}"
+    echo "  backup_user    = ${CCDC_BACKUP_USERNAME:-printer}"
+    echo "  keep_unlocked  = ${CCDC_PASSWD_KEEP_UNLOCKED:-<not set>}"
     if [[ -f "$CCDC_CONF" ]]; then
         echo -e "  ${CCDC_CYAN}config file: ${CCDC_CONF}${CCDC_NC}"
     else

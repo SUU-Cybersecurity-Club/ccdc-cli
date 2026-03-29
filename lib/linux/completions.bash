@@ -43,7 +43,7 @@ _ccdc_completions() {
         local subcmds=""
         case "$category" in
             passwd)
-                subcmds="change-all change backup-user root ad-change dsrm" ;;
+                subcmds="list root backup-user lock-all" ;;
             backup)
                 subcmds="etc binaries web services db full restore" ;;
             discover)
@@ -75,7 +75,7 @@ _ccdc_completions() {
     if [[ $cword -ge 3 ]]; then
         # config set <key> completion
         if [[ "$category" == "config" && "${words[2]}" == "set" && $cword -eq 3 ]]; then
-            local keys="os os_family os_version pkg fw_backend backup_dir wazuh_server_ip splunk_server_ip scored_ports_tcp scored_ports_udp"
+            local keys="os os_family os_version pkg fw_backend backup_dir wazuh_server_ip splunk_server_ip scored_ports_tcp scored_ports_udp backup_username passwd_keep_unlocked"
             COMPREPLY=($(compgen -W "$keys" -- "$cur"))
             return
         fi

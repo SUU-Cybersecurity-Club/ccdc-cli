@@ -21,6 +21,8 @@ function Read-CcdcConfig {
                     'splunk_server_ip' { $global:CCDC_SPLUNK_IP = $value }
                     'scored_ports_tcp' { $global:CCDC_SCORED_TCP = $value }
                     'scored_ports_udp' { $global:CCDC_SCORED_UDP = $value }
+                    'backup_username'       { $global:CCDC_BACKUP_USERNAME = $value }
+                    'passwd_keep_unlocked'  { $global:CCDC_PASSWD_KEEP_UNLOCKED = $value }
                 }
             }
         }
@@ -28,6 +30,7 @@ function Read-CcdcConfig {
 
     # Defaults
     if (-not $global:CCDC_BACKUP_DIR) { $global:CCDC_BACKUP_DIR = "C:\ccdc-backups" }
+    if (-not $global:CCDC_BACKUP_USERNAME) { $global:CCDC_BACKUP_USERNAME = "printer" }
     $global:CCDC_UNDO_DIR = Join-Path $global:CCDC_BACKUP_DIR ".ccdc-undo"
     $global:CCDC_LOG = Join-Path $global:CCDC_BACKUP_DIR "ccdc.log"
 }
@@ -48,6 +51,8 @@ wazuh_server_ip=$($global:CCDC_WAZUH_IP)
 splunk_server_ip=$($global:CCDC_SPLUNK_IP)
 scored_ports_tcp=$($global:CCDC_SCORED_TCP)
 scored_ports_udp=$($global:CCDC_SCORED_UDP)
+backup_username=$($global:CCDC_BACKUP_USERNAME)
+passwd_keep_unlocked=$($global:CCDC_PASSWD_KEEP_UNLOCKED)
 "@
     Set-Content -Path $global:CCDC_CONF -Value $content
     Write-CcdcLog "Config written to $($global:CCDC_CONF)" -Level Success
@@ -92,6 +97,8 @@ function Show-CcdcConfig {
     Write-Host "  splunk_server  = $(if ($global:CCDC_SPLUNK_IP) { $global:CCDC_SPLUNK_IP } else { '<not set>' })"
     Write-Host "  scored_tcp     = $(if ($global:CCDC_SCORED_TCP) { $global:CCDC_SCORED_TCP } else { '<not set>' })"
     Write-Host "  scored_udp     = $(if ($global:CCDC_SCORED_UDP) { $global:CCDC_SCORED_UDP } else { '<not set>' })"
+    Write-Host "  backup_user    = $($global:CCDC_BACKUP_USERNAME)"
+    Write-Host "  keep_unlocked  = $(if ($global:CCDC_PASSWD_KEEP_UNLOCKED) { $global:CCDC_PASSWD_KEEP_UNLOCKED } else { '<not set>' })"
     if (Test-Path $global:CCDC_CONF) {
         Write-Host "  config file: $($global:CCDC_CONF)" -ForegroundColor Cyan
     } else {

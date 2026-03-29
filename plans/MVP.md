@@ -140,7 +140,7 @@ The very first thing done in competition. Must work before anything else.
   - Linux: `getent passwd | grep /bin/bash`, `chpasswd` or loop `passwd`
   - Windows: `Get-LocalUser`, `Set-LocalUser -Password`
   - Undo: store old password hashes from `/etc/shadow` or SAM, restore on undo
-- [ ] `ccdc passwd change <user>` — change single user password
+- [ ] `ccdc passwd <user>` — change single user password
 - [ ] `ccdc passwd root` — change root (Linux) or Administrator (Windows)
 - [ ] `ccdc passwd backup-user` — create "printer" user with sudo/admin
   - Linux (Debian): `adduser printer && usermod -aG sudo printer`
@@ -150,6 +150,8 @@ The very first thing done in competition. Must work before anything else.
   - Undo: remove the user
 - [ ] `ccdc passwd ad-change <user>` — `Set-ADAccountPassword` (Windows only)
 - [ ] `ccdc passwd dsrm` — ntdsutil DSRM password reset (Windows AD only)
+- [ ] `ccdc passwd localuser list` — windows list local users show if have admins(windows only)
+- [ ] `ccdc passwd localuser admin` — windows changes local administrator user passwd(windows only)
 
 ---
 

@@ -9,7 +9,7 @@ $ccdcCategories = @(
 )
 
 $ccdcSubcommands = @{
-    'passwd'      = @('change-all','change','backup-user','root','ad-change','dsrm')
+    'passwd'      = @('list','root','backup-user','lock-all','ad-change','dsrm')
     'backup'      = @('etc','binaries','web','services','db','full','restore')
     'discover'    = @('network','ports','users','processes','cron','services','firewall','integrity','all')
     'service'     = @('list','stop','disable','enable','cockpit')
@@ -23,7 +23,7 @@ $ccdcSubcommands = @{
     'copy-paster' = @('--delay','--speed')
 }
 
-$ccdcConfigKeys = @('os','os_family','os_version','pkg','fw_backend','backup_dir','wazuh_server_ip','splunk_server_ip','scored_ports_tcp','scored_ports_udp')
+$ccdcConfigKeys = @('os','os_family','os_version','pkg','fw_backend','backup_dir','wazuh_server_ip','splunk_server_ip','scored_ports_tcp','scored_ports_udp','backup_username','passwd_keep_unlocked')
 
 $ccdcConfigValues = @{
     'os'          = @('ubuntu','debian','fedora','centos','rocky','alma','oracle')
