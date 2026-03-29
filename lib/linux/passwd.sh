@@ -285,7 +285,7 @@ _passwd_lock_all_undo() {
     while IFS= read -r user; do
         usermod -U "$user" 2>/dev/null && {
             ccdc_log info "Unlocked: ${user}"
-            ((count++))
+            count=$((count + 1))
         }
     done < "$locked_file"
 
@@ -355,7 +355,7 @@ ccdc_passwd_lock_all() {
         usermod -L "$username" 2>/dev/null && {
             echo "$username" >> "${snapshot_dir}/locked_by_us.txt"
             ccdc_log info "Locked: ${username}"
-            ((count++))
+            count=$((count + 1))
         }
     done < /etc/passwd
 
