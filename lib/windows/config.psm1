@@ -2,8 +2,8 @@
 # Depends on: common.psm1, detect.psm1
 
 function Read-CcdcConfig {
-    if (Test-Path $script:CCDC_CONF) {
-        Get-Content $script:CCDC_CONF | ForEach-Object {
+    if (Test-Path $global:CCDC_CONF) {
+        Get-Content $global:CCDC_CONF | ForEach-Object {
             $line = $_.Trim()
             if ($line -match '^#' -or $line -eq '') { return }
             $parts = $line -split '=', 2
@@ -11,25 +11,25 @@ function Read-CcdcConfig {
                 $key = $parts[0].Trim()
                 $value = $parts[1].Trim()
                 switch ($key) {
-                    'os'               { $script:CCDC_OS = $value }
-                    'os_family'        { $script:CCDC_OS_FAMILY = $value }
-                    'os_version'       { $script:CCDC_OS_VERSION = $value }
-                    'pkg'              { $script:CCDC_PKG = $value }
-                    'fw_backend'       { $script:CCDC_FW_BACKEND = $value }
-                    'backup_dir'       { $script:CCDC_BACKUP_DIR = $value }
-                    'wazuh_server_ip'  { $script:CCDC_WAZUH_IP = $value }
-                    'splunk_server_ip' { $script:CCDC_SPLUNK_IP = $value }
-                    'scored_ports_tcp' { $script:CCDC_SCORED_TCP = $value }
-                    'scored_ports_udp' { $script:CCDC_SCORED_UDP = $value }
+                    'os'               { $global:CCDC_OS = $value }
+                    'os_family'        { $global:CCDC_OS_FAMILY = $value }
+                    'os_version'       { $global:CCDC_OS_VERSION = $value }
+                    'pkg'              { $global:CCDC_PKG = $value }
+                    'fw_backend'       { $global:CCDC_FW_BACKEND = $value }
+                    'backup_dir'       { $global:CCDC_BACKUP_DIR = $value }
+                    'wazuh_server_ip'  { $global:CCDC_WAZUH_IP = $value }
+                    'splunk_server_ip' { $global:CCDC_SPLUNK_IP = $value }
+                    'scored_ports_tcp' { $global:CCDC_SCORED_TCP = $value }
+                    'scored_ports_udp' { $global:CCDC_SCORED_UDP = $value }
                 }
             }
         }
     }
 
     # Defaults
-    if (-not $script:CCDC_BACKUP_DIR) { $script:CCDC_BACKUP_DIR = "C:\ccdc-backups" }
-    $script:CCDC_UNDO_DIR = Join-Path $script:CCDC_BACKUP_DIR ".ccdc-undo"
-    $script:CCDC_LOG = Join-Path $script:CCDC_BACKUP_DIR "ccdc.log"
+    if (-not $global:CCDC_BACKUP_DIR) { $global:CCDC_BACKUP_DIR = "C:\ccdc-backups" }
+    $global:CCDC_UNDO_DIR = Join-Path $global:CCDC_BACKUP_DIR ".ccdc-undo"
+    $global:CCDC_LOG = Join-Path $global:CCDC_BACKUP_DIR "ccdc.log"
 }
 
 function Write-CcdcConfig {
@@ -38,19 +38,19 @@ function Write-CcdcConfig {
 # Safe to hand-edit. Delete this file to go back to auto-detect.
 # Run: .\ccdc.ps1 config reset
 
-os=$($script:CCDC_OS)
-os_family=$($script:CCDC_OS_FAMILY)
-os_version=$($script:CCDC_OS_VERSION)
-pkg=$($script:CCDC_PKG)
-fw_backend=$($script:CCDC_FW_BACKEND)
-backup_dir=$($script:CCDC_BACKUP_DIR)
-wazuh_server_ip=$($script:CCDC_WAZUH_IP)
-splunk_server_ip=$($script:CCDC_SPLUNK_IP)
-scored_ports_tcp=$($script:CCDC_SCORED_TCP)
-scored_ports_udp=$($script:CCDC_SCORED_UDP)
+os=$($global:CCDC_OS)
+os_family=$($global:CCDC_OS_FAMILY)
+os_version=$($global:CCDC_OS_VERSION)
+pkg=$($global:CCDC_PKG)
+fw_backend=$($global:CCDC_FW_BACKEND)
+backup_dir=$($global:CCDC_BACKUP_DIR)
+wazuh_server_ip=$($global:CCDC_WAZUH_IP)
+splunk_server_ip=$($global:CCDC_SPLUNK_IP)
+scored_ports_tcp=$($global:CCDC_SCORED_TCP)
+scored_ports_udp=$($global:CCDC_SCORED_UDP)
 "@
-    Set-Content -Path $script:CCDC_CONF -Value $content
-    Write-CcdcLog "Config written to $($script:CCDC_CONF)" -Level Success
+    Set-Content -Path $global:CCDC_CONF -Value $content
+    Write-CcdcLog "Config written to $($global:CCDC_CONF)" -Level Success
 }
 
 function Set-CcdcConfigValue {
@@ -58,11 +58,11 @@ function Set-CcdcConfigValue {
         [Parameter(Mandatory)][string]$Key,
         [Parameter(Mandatory)][string]$Value
     )
-    if (-not (Test-Path $script:CCDC_CONF)) {
+    if (-not (Test-Path $global:CCDC_CONF)) {
         Write-CcdcLog "No config file. Run '.\ccdc.ps1 config init' first." -Level Error
         return
     }
-    $content = Get-Content $script:CCDC_CONF
+    $content = Get-Content $global:CCDC_CONF
     $found = $false
     $newContent = $content | ForEach-Object {
         if ($_ -match "^$Key=") {
@@ -75,25 +75,25 @@ function Set-CcdcConfigValue {
     if (-not $found) {
         $newContent += "$Key=$Value"
     }
-    Set-Content -Path $script:CCDC_CONF -Value $newContent
+    Set-Content -Path $global:CCDC_CONF -Value $newContent
     Write-CcdcLog "Set $Key=$Value" -Level Success
 }
 
 function Show-CcdcConfig {
     Write-Host ""
     Write-Host "Current Configuration:" -ForegroundColor White
-    Write-Host "  os             = $($script:CCDC_OS)"
-    Write-Host "  os_family      = $($script:CCDC_OS_FAMILY)"
-    Write-Host "  os_version     = $($script:CCDC_OS_VERSION)"
-    Write-Host "  pkg            = $($script:CCDC_PKG)"
-    Write-Host "  fw_backend     = $($script:CCDC_FW_BACKEND)"
-    Write-Host "  backup_dir     = $($script:CCDC_BACKUP_DIR)"
-    Write-Host "  wazuh_server   = $(if ($script:CCDC_WAZUH_IP) { $script:CCDC_WAZUH_IP } else { '<not set>' })"
-    Write-Host "  splunk_server  = $(if ($script:CCDC_SPLUNK_IP) { $script:CCDC_SPLUNK_IP } else { '<not set>' })"
-    Write-Host "  scored_tcp     = $(if ($script:CCDC_SCORED_TCP) { $script:CCDC_SCORED_TCP } else { '<not set>' })"
-    Write-Host "  scored_udp     = $(if ($script:CCDC_SCORED_UDP) { $script:CCDC_SCORED_UDP } else { '<not set>' })"
-    if (Test-Path $script:CCDC_CONF) {
-        Write-Host "  config file: $($script:CCDC_CONF)" -ForegroundColor Cyan
+    Write-Host "  os             = $($global:CCDC_OS)"
+    Write-Host "  os_family      = $($global:CCDC_OS_FAMILY)"
+    Write-Host "  os_version     = $($global:CCDC_OS_VERSION)"
+    Write-Host "  pkg            = $($global:CCDC_PKG)"
+    Write-Host "  fw_backend     = $($global:CCDC_FW_BACKEND)"
+    Write-Host "  backup_dir     = $($global:CCDC_BACKUP_DIR)"
+    Write-Host "  wazuh_server   = $(if ($global:CCDC_WAZUH_IP) { $global:CCDC_WAZUH_IP } else { '<not set>' })"
+    Write-Host "  splunk_server  = $(if ($global:CCDC_SPLUNK_IP) { $global:CCDC_SPLUNK_IP } else { '<not set>' })"
+    Write-Host "  scored_tcp     = $(if ($global:CCDC_SCORED_TCP) { $global:CCDC_SCORED_TCP } else { '<not set>' })"
+    Write-Host "  scored_udp     = $(if ($global:CCDC_SCORED_UDP) { $global:CCDC_SCORED_UDP } else { '<not set>' })"
+    if (Test-Path $global:CCDC_CONF) {
+        Write-Host "  config file: $($global:CCDC_CONF)" -ForegroundColor Cyan
     } else {
         Write-Host "  (no config file - using auto-detect)" -ForegroundColor Yellow
     }
@@ -106,10 +106,10 @@ function Invoke-CcdcConfigInit {
     Show-CcdcConfig
 
     # Create backup directory
-    if (-not (Test-Path $script:CCDC_BACKUP_DIR)) {
-        New-Item -ItemType Directory -Path $script:CCDC_BACKUP_DIR -Force | Out-Null
+    if (-not (Test-Path $global:CCDC_BACKUP_DIR)) {
+        New-Item -ItemType Directory -Path $global:CCDC_BACKUP_DIR -Force | Out-Null
     }
-    $undoOriginal = Join-Path $script:CCDC_UNDO_DIR "original"
+    $undoOriginal = Join-Path $global:CCDC_UNDO_DIR "original"
     if (-not (Test-Path $undoOriginal)) {
         New-Item -ItemType Directory -Path $undoOriginal -Force | Out-Null
     }
@@ -124,8 +124,8 @@ function Invoke-CcdcConfigInit {
 }
 
 function Reset-CcdcConfig {
-    if (Test-Path $script:CCDC_CONF) {
-        Remove-Item $script:CCDC_CONF -Force
+    if (Test-Path $global:CCDC_CONF) {
+        Remove-Item $global:CCDC_CONF -Force
         Write-CcdcLog "Config file deleted. Will auto-detect on next run." -Level Success
     } else {
         Write-CcdcLog "No config file to delete." -Level Info
@@ -133,14 +133,14 @@ function Reset-CcdcConfig {
 }
 
 function Install-CcdcCompletions {
-    $completionsFile = Join-Path $script:CCDC_DIR "lib/windows/completions.ps1"
+    $completionsFile = Join-Path $global:CCDC_DIR "lib/windows/completions.ps1"
     if (-not (Test-Path $completionsFile)) {
         Write-CcdcLog "Completions file not found: $completionsFile" -Level Error
         return
     }
 
     # Create ccdc function alias (with admin elevation)
-    $ccdcScript = Join-Path $script:CCDC_DIR "ccdc.ps1"
+    $ccdcScript = Join-Path $global:CCDC_DIR "ccdc.ps1"
     $functionLine = "function ccdc { & '$ccdcScript' @args }"
     $sourceLine = ". '$completionsFile'"
 
@@ -196,7 +196,7 @@ function Invoke-CcdcConfig {
         [string[]]$Args
     )
 
-    if ($script:CCDC_HELP -and -not $Command) {
+    if ($global:CCDC_HELP -and -not $Command) {
         Show-CcdcConfigUsage
         return
     }
@@ -213,8 +213,8 @@ function Invoke-CcdcConfig {
         'show'  { Show-CcdcConfig }
         'reset' { Reset-CcdcConfig }
         'edit'  {
-            if (Test-Path $script:CCDC_CONF) {
-                notepad $script:CCDC_CONF
+            if (Test-Path $global:CCDC_CONF) {
+                notepad $global:CCDC_CONF
             } else {
                 Write-CcdcLog "No config file. Run 'ccdc config init' first." -Level Error
             }

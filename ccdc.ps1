@@ -31,70 +31,70 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
 }
 
 # ── Constants ──
-$script:CCDC_VERSION = "0.1.0"
-$script:CCDC_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not $script:CCDC_DIR) {
-    $script:CCDC_DIR = Split-Path -Parent $PSCommandPath
+$global:CCDC_VERSION = "0.1.0"
+$global:CCDC_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $global:CCDC_DIR) {
+    $global:CCDC_DIR = Split-Path -Parent $PSCommandPath
 }
-if (-not $script:CCDC_DIR) {
-    $script:CCDC_DIR = $PWD.Path
+if (-not $global:CCDC_DIR) {
+    $global:CCDC_DIR = $PWD.Path
 }
-$script:CCDC_CONF = Join-Path $script:CCDC_DIR ".ccdc.conf"
+$global:CCDC_CONF = Join-Path $global:CCDC_DIR ".ccdc.conf"
 
 # ── Global State ──
-$script:CCDC_OS = ""
-$script:CCDC_OS_FAMILY = ""
-$script:CCDC_OS_VERSION = ""
-$script:CCDC_PKG = ""
-$script:CCDC_FW_BACKEND = ""
-$script:CCDC_BACKUP_DIR = ""
-$script:CCDC_UNDO_DIR = ""
-$script:CCDC_LOG = ""
-$script:CCDC_WAZUH_IP = ""
-$script:CCDC_SPLUNK_IP = ""
-$script:CCDC_SCORED_TCP = ""
-$script:CCDC_SCORED_UDP = ""
-$script:CCDC_IS_DC = $false
+$global:CCDC_OS = ""
+$global:CCDC_OS_FAMILY = ""
+$global:CCDC_OS_VERSION = ""
+$global:CCDC_PKG = ""
+$global:CCDC_FW_BACKEND = ""
+$global:CCDC_BACKUP_DIR = ""
+$global:CCDC_UNDO_DIR = ""
+$global:CCDC_LOG = ""
+$global:CCDC_WAZUH_IP = ""
+$global:CCDC_SPLUNK_IP = ""
+$global:CCDC_SCORED_TCP = ""
+$global:CCDC_SCORED_UDP = ""
+$global:CCDC_IS_DC = $false
 
 # ── Global Flags ──
-$script:CCDC_HELP = $Help.IsPresent
-$script:CCDC_UNDO = $Undo.IsPresent
-$script:CCDC_NO_PROMPT = $NoPrompt.IsPresent
-$script:CCDC_DRY_RUN = $DryRun.IsPresent
-$script:CCDC_VERBOSE = $VerbosePreference -ne 'SilentlyContinue'
+$global:CCDC_HELP = $Help.IsPresent
+$global:CCDC_UNDO = $Undo.IsPresent
+$global:CCDC_NO_PROMPT = $NoPrompt.IsPresent
+$global:CCDC_DRY_RUN = $DryRun.IsPresent
+$global:CCDC_VERBOSE = $VerbosePreference -ne 'SilentlyContinue'
 
 # ── Import Phase 0 Modules ──
-Import-Module (Join-Path $script:CCDC_DIR "lib/windows/common.psm1") -Force -DisableNameChecking
-Import-Module (Join-Path $script:CCDC_DIR "lib/windows/detect.psm1") -Force -DisableNameChecking
-Import-Module (Join-Path $script:CCDC_DIR "lib/windows/config.psm1") -Force -DisableNameChecking
-Import-Module (Join-Path $script:CCDC_DIR "lib/windows/undo.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $global:CCDC_DIR "lib/windows/common.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $global:CCDC_DIR "lib/windows/detect.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $global:CCDC_DIR "lib/windows/config.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $global:CCDC_DIR "lib/windows/undo.psm1") -Force -DisableNameChecking
 
 # ── Load Config ──
 Read-CcdcConfig
 
 # If no config loaded, run detection
-if (-not $script:CCDC_OS) {
+if (-not $global:CCDC_OS) {
     Invoke-CcdcDetect
 }
 
 # ── Start Transcript Logging ──
-if ($script:CCDC_LOG) {
-    $logDir = Split-Path $script:CCDC_LOG
+if ($global:CCDC_LOG) {
+    $logDir = Split-Path $global:CCDC_LOG
     if (-not (Test-Path $logDir)) {
         New-Item -ItemType Directory -Path $logDir -Force | Out-Null
     }
-    Start-Transcript -Path $script:CCDC_LOG -Append -ErrorAction SilentlyContinue | Out-Null
+    Start-Transcript -Path $global:CCDC_LOG -Append -ErrorAction SilentlyContinue | Out-Null
 }
 
 # ── Load Tab Completions ──
-$completionsFile = Join-Path $script:CCDC_DIR "lib/windows/completions.ps1"
+$completionsFile = Join-Path $global:CCDC_DIR "lib/windows/completions.ps1"
 if (Test-Path $completionsFile) {
     . $completionsFile
 }
 
 # ── No category: show help ──
 if (-not $Category) {
-    if ($script:CCDC_HELP) {
+    if ($global:CCDC_HELP) {
         Show-CcdcUsage
         exit 0
     }
@@ -104,7 +104,7 @@ if (-not $Category) {
 
 # ── Version ──
 if ($Category -eq '--version') {
-    Write-Host "ccdc-cli $($script:CCDC_VERSION)"
+    Write-Host "ccdc-cli $($global:CCDC_VERSION)"
     exit 0
 }
 
@@ -141,7 +141,7 @@ switch ($resolvedCategory) {
         Invoke-CcdcUndo -Command $Command -Args $RemainingArgs
     }
     { $_ -in 'passwd','backup','discover','service','firewall','harden','siem','install','net' } {
-        $modulePath = Join-Path $script:CCDC_DIR "lib/windows/$resolvedCategory.psm1"
+        $modulePath = Join-Path $global:CCDC_DIR "lib/windows/$resolvedCategory.psm1"
         if (-not (Test-Path $modulePath)) {
             Write-CcdcLog "Module '$resolvedCategory' not yet built. Coming soon." -Level Warn
             exit 1
@@ -151,7 +151,7 @@ switch ($resolvedCategory) {
         & $handlerName -Command $Command -Args $RemainingArgs
     }
     'comp-start' {
-        $modulePath = Join-Path $script:CCDC_DIR "lib/windows/comp-start.psm1"
+        $modulePath = Join-Path $global:CCDC_DIR "lib/windows/comp-start.psm1"
         if (-not (Test-Path $modulePath)) {
             Write-CcdcLog "comp-start module not yet built. Run individual commands instead." -Level Warn
             exit 1
@@ -160,7 +160,7 @@ switch ($resolvedCategory) {
         Invoke-CcdcCompStart -Args $RemainingArgs
     }
     'copy-paster' {
-        $script = Join-Path $script:CCDC_DIR "lib/copy-paster/copy-paster.ps1"
+        $script = Join-Path $global:CCDC_DIR "lib/copy-paster/copy-paster.ps1"
         if (-not (Test-Path $script)) {
             Write-CcdcLog "copy-paster not yet built. Coming soon." -Level Warn
             exit 1

@@ -6,7 +6,7 @@
 # ══════════════════════════════════════════
 
 function Invoke-CcdcCreateBaseline {
-    $base = Join-Path $script:CCDC_UNDO_DIR "original"
+    $base = Join-Path $global:CCDC_UNDO_DIR "original"
     if (-not (Test-Path $base)) {
         New-Item -ItemType Directory -Path $base -Force | Out-Null
     }
@@ -77,7 +77,7 @@ function New-CcdcUndoSnapshot {
         [Parameter(Mandatory)][string]$Command
     )
     $ts = Get-Date -Format "yyyy-MM-dd_HHmmss"
-    $dir = Join-Path $script:CCDC_UNDO_DIR "$Category\$Command\$ts"
+    $dir = Join-Path $global:CCDC_UNDO_DIR "$Category\$Command\$ts"
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     return $dir
 }
@@ -87,7 +87,7 @@ function Get-CcdcUndoSnapshotLatest {
         [Parameter(Mandatory)][string]$Category,
         [Parameter(Mandatory)][string]$Command
     )
-    $dir = Join-Path $script:CCDC_UNDO_DIR "$Category\$Command"
+    $dir = Join-Path $global:CCDC_UNDO_DIR "$Category\$Command"
     if (-not (Test-Path $dir)) { return $null }
     $latest = Get-ChildItem $dir -Directory | Sort-Object Name -Descending | Select-Object -First 1
     if ($latest) { return $latest.FullName }
@@ -100,7 +100,7 @@ function Get-CcdcUndoSnapshotLatest {
 
 function Add-CcdcUndoLog {
     param([Parameter(Mandatory)][string]$Message)
-    $logFile = Join-Path $script:CCDC_UNDO_DIR "undo.log"
+    $logFile = Join-Path $global:CCDC_UNDO_DIR "undo.log"
     if (-not (Test-Path (Split-Path $logFile))) {
         New-Item -ItemType Directory -Path (Split-Path $logFile) -Force | Out-Null
     }
@@ -109,7 +109,7 @@ function Add-CcdcUndoLog {
 }
 
 function Show-CcdcUndoLog {
-    $logFile = Join-Path $script:CCDC_UNDO_DIR "undo.log"
+    $logFile = Join-Path $global:CCDC_UNDO_DIR "undo.log"
     if (Test-Path $logFile) {
         Write-Host "Undo Log:" -ForegroundColor White
         Get-Content $logFile

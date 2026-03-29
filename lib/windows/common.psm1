@@ -36,7 +36,7 @@ function Test-CcdcAdmin {
 
 function Confirm-CcdcAction {
     param([string]$Prompt = "Continue?")
-    if ($script:CCDC_NO_PROMPT) { return $true }
+    if ($global:CCDC_NO_PROMPT) { return $true }
     $reply = Read-Host "$Prompt [y/N]"
     return ($reply -match '^[Yy]$')
 }
@@ -48,11 +48,11 @@ function Invoke-CcdcRun {
         [Parameter(Mandatory)][scriptblock]$Command,
         [string]$Description = ""
     )
-    if ($script:CCDC_DRY_RUN) {
+    if ($global:CCDC_DRY_RUN) {
         Write-CcdcLog "[DRY RUN] Would run: $Description" -Level Info
         return
     }
-    if ($script:CCDC_VERBOSE -and $Description) {
+    if ($global:CCDC_VERBOSE -and $Description) {
         Write-CcdcLog "Running: $Description" -Level Info
     }
     try {
