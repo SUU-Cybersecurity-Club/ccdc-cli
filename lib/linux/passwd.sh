@@ -36,13 +36,13 @@ ccdc_passwd_usage() {
 ccdc_passwd_list() {
     ccdc_log info "Listing all users..."
     echo ""
-    printf "%-16s %-6s %-20s %-30s %-16s %-8s %s\n" \
-        "USERNAME" "UID" "HOME" "GROUPS" "SHELL" "LOCKED" "LAST LOGIN"
-    printf "%-16s %-6s %-20s %-30s %-16s %-8s %s\n" \
-        "--------" "---" "----" "------" "-----" "------" "----------"
+
+    # Use column command if available for auto-sizing, otherwise fall back to raw output
+    local output=""
+    output+="USERNAME|UID|HOME|GROUPS|SHELL|LOCK|LAST LOGIN"$'\n'
+    output+="--------|---|----|----- |-----|----|----- ----"$'\n'
 
     while IFS=: read -r username _ uid _ _ homedir shell; do
-        # Skip nologin/false shells for display clarity but still show them
         local groups
         groups="$(id -Gn "$username" 2>/dev/null | tr ' ' ',')"
 
@@ -66,9 +66,16 @@ ccdc_passwd_list() {
             display_groups="*${groups}"
         fi
 
-        printf "%-16s %-6s %-20s %-30s %-16s %-8s %s\n" \
-            "$username" "$uid" "$homedir" "$display_groups" "$shell" "$locked" "$last_login"
+        output+="${username}|${uid}|${homedir}|${display_groups}|${shell}|${locked}|${last_login}"$'\n'
     done < /etc/passwd
+
+    # column -t auto-sizes columns to fit content
+    if command -v column &>/dev/null; then
+        echo "$output" | column -t -s '|'
+    else
+        echo "$output" | tr '|' '\t'
+    fi
+
     echo ""
     echo "* = user has sudo/wheel group membership"
 }
