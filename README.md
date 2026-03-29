@@ -25,12 +25,13 @@ sudo ./ccdc.sh comp-start
 ### Windows — Fastest (paste into Admin PowerShell)
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://github.com/SUU-Cybersecurity-Club/ccdc-cli/archive/refs/heads/main.zip -OutFile ccdc.zip; Expand-Archive ccdc.zip .; cd ccdc-cli-main; .\ccdc.ps1 comp-start
+Set-ExecutionPolicy RemoteSigned -Scope Process -Force; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://github.com/SUU-Cybersecurity-Club/ccdc-cli/archive/refs/heads/main.zip -OutFile ccdc.zip; Expand-Archive ccdc.zip .; cd ccdc-cli-main; .\ccdc.ps1 comp-start
 ```
 
 ### Windows — With git
 
 ```powershell
+Set-ExecutionPolicy RemoteSigned -Scope Process -Force
 git clone https://github.com/SUU-Cybersecurity-Club/ccdc-cli.git
 cd ccdc-cli
 .\ccdc.ps1 comp-start
@@ -49,6 +50,7 @@ sudo ./ccdc.sh comp-start           # Run full 30-minute checklist
 
 ```powershell
 # Windows (PowerShell as Administrator)
+Set-ExecutionPolicy RemoteSigned -Scope Process -Force
 [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
 Invoke-WebRequest https://github.com/SUU-Cybersecurity-Club/ccdc-cli/archive/refs/heads/main.zip -OutFile ccdc.zip
 Expand-Archive ccdc.zip .
