@@ -277,8 +277,8 @@ _passwd_lock_all_undo() {
 
     local locked_file="${snapshot_dir}/locked_by_us.txt"
     if [[ ! -f "$locked_file" ]]; then
-        ccdc_log error "No locked user list in snapshot"
-        return 1
+        ccdc_log info "No users were locked in that run — nothing to undo"
+        return 0
     fi
 
     local count=0
