@@ -142,6 +142,9 @@ function Show-CcdcUsage {
     Write-Host "  -DryRun            Show what would be done"
     Write-Host "  -Verbose           Verbose output"
     Write-Host ""
+    Write-Host "Tab Completion:" -ForegroundColor White
+    Write-Host "  .\ccdc.ps1 --setup-completions    Install PowerShell tab completion"
+    Write-Host ""
     Write-Host "Run '.\ccdc.ps1 <category> -Help' for command-specific help."
 }
 

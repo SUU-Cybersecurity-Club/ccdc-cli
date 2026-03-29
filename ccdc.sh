@@ -60,6 +60,24 @@ while [[ $# -gt 0 ]]; do
         --dry-run)     CCDC_DRY_RUN=true; shift ;;
         --verbose|-v)  CCDC_VERBOSE=true; shift ;;
         --version)     echo "ccdc-cli ${CCDC_VERSION}"; exit 0 ;;
+        --setup-completions)
+            comp_file="${CCDC_DIR}/lib/linux/completions.bash"
+            if [[ -f "$comp_file" ]]; then
+                # Install to bash_completion.d if available
+                if [[ -d /etc/bash_completion.d ]]; then
+                    cp "$comp_file" /etc/bash_completion.d/ccdc
+                    echo "Completions installed to /etc/bash_completion.d/ccdc"
+                    echo "Run: source /etc/bash_completion.d/ccdc  (or open a new shell)"
+                else
+                    echo "Source completions manually:"
+                    echo "  source ${comp_file}"
+                    echo ""
+                    echo "To make permanent, add to ~/.bashrc:"
+                    echo "  echo 'source ${comp_file}' >> ~/.bashrc"
+                fi
+            fi
+            exit 0
+            ;;
         --)            shift; args+=("$@"); break ;;
         *)             args+=("$1"); shift ;;
     esac

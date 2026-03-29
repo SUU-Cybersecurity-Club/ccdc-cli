@@ -12,7 +12,8 @@ ccdc_detect_os() {
         # shellcheck disable=SC1091
         . /etc/os-release
         id="${ID,,}"
-        id_like="${ID_LIKE,,}"
+        id_like="${ID_LIKE:-}"
+        id_like="${id_like,,}"
         version="${VERSION_ID%%.*}"
 
     # Level 2: lsb_release command

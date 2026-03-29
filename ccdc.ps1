@@ -80,6 +80,31 @@ if ($script:CCDC_LOG) {
     Start-Transcript -Path $script:CCDC_LOG -Append -ErrorAction SilentlyContinue | Out-Null
 }
 
+# ── Load Tab Completions ──
+$completionsFile = Join-Path $script:CCDC_DIR "lib/windows/completions.ps1"
+if (Test-Path $completionsFile) {
+    . $completionsFile
+}
+
+# ── Setup Completions Flag ──
+if ($Category -eq '--setup-completions') {
+    if (Test-Path $completionsFile) {
+        $profileDir = Split-Path $PROFILE
+        if (-not (Test-Path $profileDir)) {
+            New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
+        }
+        $line = ". '$completionsFile'"
+        if (-not (Test-Path $PROFILE) -or -not (Select-String -Path $PROFILE -SimpleMatch $completionsFile -Quiet)) {
+            Add-Content -Path $PROFILE -Value "`n# ccdc-cli tab completion`n$line"
+            Write-Host "Completions added to $PROFILE" -ForegroundColor Green
+            Write-Host "Restart PowerShell or run: . '$completionsFile'" -ForegroundColor Cyan
+        } else {
+            Write-Host "Completions already in $PROFILE" -ForegroundColor Cyan
+        }
+    }
+    exit 0
+}
+
 # ── No category: show help ──
 if (-not $Category) {
     if ($script:CCDC_HELP) {

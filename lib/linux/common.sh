@@ -203,5 +203,8 @@ ccdc_usage() {
     echo "  --dry-run          Show what would be done"
     echo "  --verbose, -v      Verbose output"
     echo ""
+    echo -e "${CCDC_BOLD}Tab Completion:${CCDC_NC}"
+    echo "  sudo ./ccdc.sh --setup-completions    Install bash tab completion"
+    echo ""
     echo "Run 'ccdc <category> --help' for command-specific help."
 }
