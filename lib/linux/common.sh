@@ -28,12 +28,15 @@ ccdc_log() {
         *)       color="$CCDC_NC";     prefix="[LOG]"   ;;
     esac
     echo -e "${color}${ts} ${prefix}${CCDC_NC} ${msg}"
+    # Append to log file if set (without colors)
+    if [[ -n "${CCDC_LOG:-}" && -d "$(dirname "$CCDC_LOG" 2>/dev/null)" ]]; then
+        echo "${ts} ${prefix} ${msg}" >> "$CCDC_LOG" 2>/dev/null || true
+    fi
 }
 
 ccdc_log_init() {
     if [[ -n "${CCDC_LOG:-}" ]]; then
-        mkdir -p "$(dirname "$CCDC_LOG")"
-        exec > >(tee -a "$CCDC_LOG") 2>&1
+        mkdir -p "$(dirname "$CCDC_LOG")" 2>/dev/null || true
     fi
 }
 
