@@ -65,10 +65,13 @@ function Invoke-CcdcPasswdList {
 # ── Change User Password ──
 
 function Invoke-CcdcPasswdChange {
-    param([string]$Username)
+    param(
+        [string]$Username,
+        [string[]]$ExtraArgs
+    )
 
     if (-not $Username) {
-        Write-CcdcLog "Usage: ccdc passwd <username>" -Level Error
+        Write-CcdcLog "Usage: ccdc passwd <username> [--password <pass>]" -Level Error
         return
     }
 
@@ -85,32 +88,45 @@ function Invoke-CcdcPasswdChange {
         return
     }
 
-    # Prompt for password
-    $secPass1 = Read-Host "New password for $Username" -AsSecureString
-    $secPass2 = Read-Host "Confirm password" -AsSecureString
+    # Parse --password flag for non-interactive use (testing/automation)
+    $plainPass = ""
+    if ($ExtraArgs) {
+        for ($i = 0; $i -lt $ExtraArgs.Count; $i++) {
+            if ($ExtraArgs[$i] -eq '--password' -and ($i + 1) -lt $ExtraArgs.Count) {
+                $plainPass = $ExtraArgs[$i + 1]
+            }
+        }
+    }
 
-    # Compare passwords
-    $bstr1 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secPass1)
-    $plain1 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr1)
-    $bstr2 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secPass2)
-    $plain2 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr2)
+    if ($plainPass) {
+        $secPass = ConvertTo-SecureString $plainPass -AsPlainText -Force
+    } else {
+        $secPass1 = Read-Host "New password for $Username" -AsSecureString
+        $secPass2 = Read-Host "Confirm password" -AsSecureString
 
-    if ($plain1 -ne $plain2) {
-        Write-CcdcLog "Passwords do not match" -Level Error
-        return
+        $bstr1 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secPass1)
+        $plain1 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr1)
+        $bstr2 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secPass2)
+        $plain2 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr2)
+
+        if ($plain1 -ne $plain2) {
+            Write-CcdcLog "Passwords do not match" -Level Error
+            [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr1)
+            [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr2)
+            return
+        }
+        $secPass = $secPass1
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr1)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr2)
     }
 
     try {
-        Set-LocalUser -Name $Username -Password $secPass1
+        Set-LocalUser -Name $Username -Password $secPass
         Write-CcdcLog "Password changed for $Username" -Level Success
         Add-CcdcUndoLog "passwd $Username -- password changed"
     } catch {
         Write-CcdcLog "Failed to change password: $_" -Level Error
     }
-
-    # Clear sensitive data
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr1)
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr2)
 }
 
 # ── Change Root (Administrator) ──
@@ -132,10 +148,14 @@ function Invoke-CcdcPasswdBackupUser {
     $backupName = $global:CCDC_BACKUP_USERNAME
     if (-not $backupName) { $backupName = "printer" }
 
-    # Parse --name flag
+    # Parse --name and --password flags
+    $plainPass = ""
     for ($i = 0; $i -lt $ExtraArgs.Count; $i++) {
         if ($ExtraArgs[$i] -eq '--name' -and ($i + 1) -lt $ExtraArgs.Count) {
             $backupName = $ExtraArgs[$i + 1]
+        }
+        if ($ExtraArgs[$i] -eq '--password' -and ($i + 1) -lt $ExtraArgs.Count) {
+            $plainPass = $ExtraArgs[$i + 1]
         }
     }
 
@@ -163,8 +183,12 @@ function Invoke-CcdcPasswdBackupUser {
         return
     }
 
-    # Prompt for password
-    $secPass = Read-Host "Password for $backupName" -AsSecureString
+    # Get password (interactive or --password flag)
+    if ($plainPass) {
+        $secPass = ConvertTo-SecureString $plainPass -AsPlainText -Force
+    } else {
+        $secPass = Read-Host "Password for $backupName" -AsSecureString
+    }
 
     # Create user
     try {
@@ -349,7 +373,7 @@ function Invoke-CcdcPasswd {
         ''                               { Show-CcdcPasswdUsage }
         default {
             # Treat unrecognized subcommand as a username
-            Invoke-CcdcPasswdChange -Username $Command
+            Invoke-CcdcPasswdChange -Username $Command -ExtraArgs $Args
         }
     }
 }
