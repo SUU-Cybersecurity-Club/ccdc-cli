@@ -38,7 +38,7 @@ $ccdcAliasMap = @{
     'fw'='firewall'; 'hrd'='harden'; 'inst'='install'; 'cfg'='config'; 'cp'='copy-paster'
 }
 
-Register-ArgumentCompleter -CommandName 'ccdc.ps1','.\ccdc.ps1' -Native -ScriptBlock {
+Register-ArgumentCompleter -CommandName 'ccdc','ccdc.ps1','.\ccdc.ps1' -Native -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
 
     $tokens = $commandAst.ToString() -split '\s+'
