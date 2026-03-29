@@ -1,0 +1,28 @@
+CCDC-CLI Linux Setup — Alias and Tab Completion
+================================================
+
+After downloading ccdc-cli, set up the 'ccdc' shortcut:
+
+1. Run setup (as root):
+
+   sudo ./ccdc.sh config setup-completions
+
+2. Activate (pick one):
+
+   source ~/.bashrc
+   OR
+   bash
+
+3. Verify:
+
+   ccdc config show
+
+Now use 'ccdc' instead of 'sudo ./ccdc.sh':
+
+   ccdc config init
+   ccdc fw status
+   ccdc passwd change-all
+   ccdc comp-start
+
+Tab completion works — press Tab after 'ccdc ' to see categories,
+after 'ccdc config ' to see subcommands, etc.

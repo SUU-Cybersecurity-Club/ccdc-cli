@@ -62,6 +62,8 @@ cd ccdc-cli-main
 
 After downloading, firewall off outbound internet. Everything runs offline from here.
 
+**Set up the `ccdc` shortcut and tab completion:** See [SETUP-LINUX.txt](SETUP-LINUX.txt) or [SETUP-WINDOWS.txt](SETUP-WINDOWS.txt).
+
 ---
 
 ## Design Principles

@@ -1,0 +1,36 @@
+CCDC-CLI Windows Setup — Alias and Tab Completion
+==================================================
+
+After downloading ccdc-cli, set up the 'ccdc' shortcut:
+
+1. Allow scripts to run (paste this first):
+
+   Set-ExecutionPolicy RemoteSigned -Scope Process -Force
+
+2. Run setup:
+
+   .\ccdc.ps1 config setup-completions
+
+3. Activate:
+
+   . $PROFILE
+
+4. Verify:
+
+   ccdc config show
+
+Now use 'ccdc' instead of '.\ccdc.ps1':
+
+   ccdc config init
+   ccdc fw status
+   ccdc passwd change-all
+   ccdc comp-start
+
+Tab completion works — press Tab after 'ccdc ' to see categories,
+after 'ccdc config ' to see subcommands, etc.
+
+NOTE: If you get a script execution error, run step 1 again.
+      Each new PowerShell window needs it unless you set the policy
+      permanently:
+
+   Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
