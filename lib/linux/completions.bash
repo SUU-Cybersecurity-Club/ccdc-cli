@@ -61,7 +61,7 @@ _ccdc_completions() {
             net)
                 subcmds="wget curl" ;;
             config)
-                subcmds="init set show reset edit" ;;
+                subcmds="init set show reset edit setup-completions" ;;
             undo)
                 subcmds="log show" ;;
             copy-paster)
@@ -102,6 +102,7 @@ _ccdc_completions() {
     fi
 }
 
+# Register for all invocation forms
 complete -F _ccdc_completions ccdc
 complete -F _ccdc_completions ccdc.sh
 complete -F _ccdc_completions ./ccdc.sh

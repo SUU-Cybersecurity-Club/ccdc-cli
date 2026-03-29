@@ -18,7 +18,7 @@ $ccdcSubcommands = @{
     'siem'        = @('wazuh-server','wazuh-agent','splunk-server','splunk-agent','suricata','zeek','snoopy','auditd','sysmon')
     'install'     = @('malwarebytes','nmap','tmux','aide')
     'net'         = @('wget','curl')
-    'config'      = @('init','set','show','reset','edit')
+    'config'      = @('init','set','show','reset','edit','setup-completions')
     'undo'        = @('log','show')
     'copy-paster' = @('--delay','--speed')
 }

@@ -132,16 +132,62 @@ function Reset-CcdcConfig {
     }
 }
 
+function Install-CcdcCompletions {
+    $completionsFile = Join-Path $script:CCDC_DIR "lib/windows/completions.ps1"
+    if (-not (Test-Path $completionsFile)) {
+        Write-CcdcLog "Completions file not found: $completionsFile" -Level Error
+        return
+    }
+
+    # Create ccdc function alias (with admin elevation)
+    $ccdcScript = Join-Path $script:CCDC_DIR "ccdc.ps1"
+    $functionLine = "function ccdc { & '$ccdcScript' @args }"
+    $sourceLine = ". '$completionsFile'"
+
+    # Ensure profile directory exists
+    $profileDir = Split-Path $PROFILE
+    if (-not (Test-Path $profileDir)) {
+        New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
+    }
+
+    # Add to profile if not already present
+    $needsUpdate = $true
+    if (Test-Path $PROFILE) {
+        if (Select-String -Path $PROFILE -SimpleMatch "function ccdc" -Quiet) {
+            $needsUpdate = $false
+        }
+    }
+
+    if ($needsUpdate) {
+        $block = @"
+
+# ccdc-cli alias and tab completion
+$functionLine
+$sourceLine
+"@
+        Add-Content -Path $PROFILE -Value $block
+        Write-CcdcLog "Added 'ccdc' function and completions to $PROFILE" -Level Success
+        Write-Host ""
+        Write-CcdcLog "Restart PowerShell or run:" -Level Info
+        Write-Host "  . '$PROFILE'" -ForegroundColor Cyan
+        Write-Host ""
+        Write-CcdcLog "Then use: ccdc config show" -Level Info
+    } else {
+        Write-CcdcLog "ccdc function already in $PROFILE" -Level Info
+    }
+}
+
 function Show-CcdcConfigUsage {
     Write-Host ""
     Write-Host "ccdc config - Persistent configuration" -ForegroundColor White
     Write-Host ""
     Write-Host "Commands:"
-    Write-Host "  init       Auto-detect and save to .ccdc.conf"
-    Write-Host "  set K V    Set a single config value"
-    Write-Host "  show       Show current config"
-    Write-Host "  reset      Delete config file"
-    Write-Host "  edit       Open config file in notepad"
+    Write-Host "  init                 Auto-detect and save to .ccdc.conf"
+    Write-Host "  set K V              Set a single config value"
+    Write-Host "  show                 Show current config"
+    Write-Host "  reset                Delete config file"
+    Write-Host "  edit                 Open config file in notepad"
+    Write-Host "  setup-completions    Install 'ccdc' command and tab completion"
 }
 
 function Invoke-CcdcConfig {
@@ -173,9 +219,11 @@ function Invoke-CcdcConfig {
                 Write-CcdcLog "No config file. Run 'ccdc config init' first." -Level Error
             }
         }
+        'setup-completions' { Install-CcdcCompletions }
         default { Show-CcdcConfigUsage }
     }
 }
 
 Export-ModuleMember -Function Read-CcdcConfig, Write-CcdcConfig, Set-CcdcConfigValue,
-    Show-CcdcConfig, Invoke-CcdcConfigInit, Reset-CcdcConfig, Invoke-CcdcConfig
+    Show-CcdcConfig, Invoke-CcdcConfigInit, Reset-CcdcConfig, Install-CcdcCompletions,
+    Invoke-CcdcConfig

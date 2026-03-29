@@ -148,15 +148,64 @@ ccdc_config_edit() {
 
 # ── Config Help ──
 
+ccdc_config_setup_completions() {
+    local comp_file="${CCDC_DIR}/lib/linux/completions.bash"
+    if [[ ! -f "$comp_file" ]]; then
+        ccdc_log error "Completions file not found: ${comp_file}"
+        return 1
+    fi
+
+    # Create 'ccdc' alias with sudo
+    local alias_line="alias ccdc='sudo ${CCDC_DIR}/ccdc.sh'"
+    local source_line="source ${comp_file}"
+
+    # Install to bash_completion.d if available
+    if [[ -d /etc/bash_completion.d ]]; then
+        cp "$comp_file" /etc/bash_completion.d/ccdc
+        ccdc_log success "Completions installed to /etc/bash_completion.d/ccdc"
+    fi
+
+    # Add alias + completions to each real user's .bashrc
+    local bashrc_updated=false
+    while IFS=: read -r username _ uid _ _ homedir shell; do
+        # Skip system users and nologin shells
+        [[ "$uid" -lt 1000 && "$uid" -ne 0 ]] && continue
+        [[ "$shell" == */nologin || "$shell" == */false ]] && continue
+        [[ ! -d "$homedir" ]] && continue
+
+        local bashrc="${homedir}/.bashrc"
+        [[ ! -f "$bashrc" ]] && continue
+
+        # Add alias if not already present
+        if ! grep -qF "alias ccdc=" "$bashrc" 2>/dev/null; then
+            echo "" >> "$bashrc"
+            echo "# ccdc-cli alias and tab completion" >> "$bashrc"
+            echo "$alias_line" >> "$bashrc"
+            echo "$source_line" >> "$bashrc"
+            ccdc_log success "Added ccdc alias to ${bashrc}"
+            bashrc_updated=true
+        else
+            ccdc_log info "Alias already in ${bashrc} — skipping"
+        fi
+    done < /etc/passwd
+
+    if [[ "$bashrc_updated" == true ]]; then
+        echo ""
+        ccdc_log info "Open a new shell or run: source ~/.bashrc"
+        ccdc_log info "Then use: ccdc config show"
+    fi
+}
+
 ccdc_config_usage() {
     echo -e "${CCDC_BOLD}ccdc config${CCDC_NC} — Persistent configuration"
     echo ""
     echo "Commands:"
-    echo "  init       Auto-detect and save to .ccdc.conf"
-    echo "  set K V    Set a single config value"
-    echo "  show       Show current config"
-    echo "  reset      Delete config file (go back to auto-detect)"
-    echo "  edit       Open config file in editor"
+    echo "  init                 Auto-detect and save to .ccdc.conf"
+    echo "  set K V              Set a single config value"
+    echo "  show                 Show current config"
+    echo "  reset                Delete config file (go back to auto-detect)"
+    echo "  edit                 Open config file in editor"
+    echo "  setup-completions    Install 'ccdc' alias and bash tab completion"
     echo ""
     echo "Config keys: os, os_family, os_version, pkg, fw_backend,"
     echo "  backup_dir, wazuh_server_ip, splunk_server_ip,"
@@ -195,6 +244,9 @@ ccdc_config_handler() {
             ;;
         edit)
             ccdc_config_edit
+            ;;
+        setup-completions)
+            ccdc_config_setup_completions
             ;;
         "")
             ccdc_config_usage
