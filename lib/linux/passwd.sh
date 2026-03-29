@@ -299,8 +299,10 @@ ccdc_passwd_lock_all() {
         return $?
     fi
 
-    # Build exclusion list
+    # Build exclusion list — include root, current user, AND the user who invoked sudo
     local -a exclusions=("root" "$(whoami)")
+    [[ -n "${SUDO_USER:-}" ]] && exclusions+=("$SUDO_USER")
+    [[ -n "${LOGNAME:-}" ]] && exclusions+=("$LOGNAME")
 
     # Add backup username
     [[ -n "${CCDC_BACKUP_USERNAME:-}" ]] && exclusions+=("$CCDC_BACKUP_USERNAME")
