@@ -103,7 +103,7 @@ if (-not $Category) {
 }
 
 # ── Version ──
-if ($Category -eq '--version') {
+if ($Category -eq '--version' -or $Category -eq 'version') {
     Write-Host "ccdc-cli $($global:CCDC_VERSION)"
     exit 0
 }
