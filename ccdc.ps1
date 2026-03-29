@@ -1,4 +1,3 @@
-#Requires -RunAsAdministrator
 # ccdc-cli — CCDC competition hardening toolkit
 # Windows entry point
 
@@ -11,6 +10,25 @@ param(
     [switch]$NoPrompt,
     [switch]$DryRun
 )
+
+# ── Enable Script Execution (if restricted) ──
+$currentPolicy = Get-ExecutionPolicy -Scope Process
+if ($currentPolicy -eq 'Restricted' -or $currentPolicy -eq 'Undefined') {
+    try {
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process -Force
+        Write-Host "[INFO] Execution policy set to RemoteSigned for this session." -ForegroundColor Cyan
+    } catch {
+        Write-Host "[WARN] Could not set execution policy. If scripts fail, run:" -ForegroundColor Yellow
+        Write-Host "  Set-ExecutionPolicy RemoteSigned -Scope Process -Force" -ForegroundColor Yellow
+    }
+}
+
+# ── Require Administrator ──
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "[ERROR] ccdc-cli requires Administrator. Right-click PowerShell > Run as Administrator." -ForegroundColor Red
+    exit 1
+}
 
 # ── Constants ──
 $script:CCDC_VERSION = "0.1.0"

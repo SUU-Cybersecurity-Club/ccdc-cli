@@ -3,6 +3,12 @@
 # Linux entry point
 set -euo pipefail
 
+# ── Require Root ──
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+    echo -e "\033[0;31m[ERROR]\033[0m ccdc-cli requires root. Run with: sudo ./ccdc.sh $*"
+    exit 1
+fi
+
 # ── Constants ──
 CCDC_VERSION="0.1.0"
 CCDC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
