@@ -8,26 +8,57 @@ A modular CLI toolkit for CCDC (Collegiate Cyber Defense Competition) hardening,
 
 ## Quick Start
 
+### Linux — Fastest (one-liner, paste and go)
+
+```bash
+curl -sL https://github.com/SUU-Cybersecurity-Club/ccdc-cli/archive/refs/heads/main.tar.gz | tar xz && cd ccdc-cli-main && sudo ./ccdc.sh comp-start
+```
+
+### Linux — With git
+
+```bash
+git clone https://github.com/SUU-Cybersecurity-Club/ccdc-cli.git
+cd ccdc-cli
+sudo ./ccdc.sh comp-start
+```
+
+### Windows — Fastest (paste into Admin PowerShell)
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest https://github.com/SUU-Cybersecurity-Club/ccdc-cli/archive/refs/heads/main.zip -OutFile ccdc.zip; Expand-Archive ccdc.zip .; cd ccdc-cli-main; .\ccdc.ps1 comp-start
+```
+
+### Windows — With git
+
+```powershell
+git clone https://github.com/SUU-Cybersecurity-Club/ccdc-cli.git
+cd ccdc-cli
+.\ccdc.ps1 comp-start
+```
+
+### Step-by-step (if you want to review before running)
+
 ```bash
 # Linux
-git clone https://github.com/<your-org>/ccdc-cli.git
-cd ccdc-cli
-chmod +x ccdc.sh
+curl -sL https://github.com/SUU-Cybersecurity-Club/ccdc-cli/archive/refs/heads/main.tar.gz | tar xz
+cd ccdc-cli-main
 sudo ./ccdc.sh config init          # Auto-detect OS, pkg manager, firewall — saves to .ccdc.conf
-sudo ./ccdc.sh config show          # Verify detection is correct, edit if needed
-sudo ./ccdc.sh comp-start
+sudo ./ccdc.sh config show          # Verify detection, edit if needed
+sudo ./ccdc.sh comp-start           # Run full 30-minute checklist
 ```
 
 ```powershell
 # Windows (PowerShell as Administrator)
-git clone https://github.com/<your-org>/ccdc-cli.git
-cd ccdc-cli
-.\ccdc.ps1 config init              # Auto-detect and save to .ccdc.conf
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+Invoke-WebRequest https://github.com/SUU-Cybersecurity-Club/ccdc-cli/archive/refs/heads/main.zip -OutFile ccdc.zip
+Expand-Archive ccdc.zip .
+cd ccdc-cli-main
+.\ccdc.ps1 config init              # Auto-detect and save
 .\ccdc.ps1 config show              # Verify
-.\ccdc.ps1 comp-start
+.\ccdc.ps1 comp-start               # Run full 30-minute checklist
 ```
 
-After cloning, run `config init` to lock in detection, then firewall off outbound internet. Everything runs offline from here.
+After downloading, firewall off outbound internet. Everything runs offline from here.
 
 ---
 
