@@ -10,7 +10,8 @@ function Show-CcdcBackupUsage {
     Write-Host "Commands:"
     Write-Host "  etc                  Export registry hives"
     Write-Host "  binaries (bin)       Backup Defender and firewall DLLs"
-    Write-Host "  web                  Backup IIS wwwroot"
+    Write-Host "  web                  Backup IIS (entire inetpub)"
+    Write-Host "  grab <name>          Backup a service's files by name"
     Write-Host "  services (svc)       Save service list to CSV"
     Write-Host "  ip                   Save IP addresses and routes"
     Write-Host "  ports                Save listening ports"
@@ -27,7 +28,9 @@ function Show-CcdcBackupUsage {
     Write-Host "Examples:"
     Write-Host "  ccdc bak etc                    Export registry hives"
     Write-Host "  ccdc bak bin                    Backup Defender DLLs"
-    Write-Host "  ccdc bak web                    Backup IIS wwwroot"
+    Write-Host "  ccdc bak web                    Backup IIS (inetpub + FTP)"
+    Write-Host "  ccdc bak grab W3SVC             Backup IIS service files"
+    Write-Host "  ccdc bak grab sshd              Backup OpenSSH files"
     Write-Host "  ccdc bak full                   Run all backups"
     Write-Host "  ccdc bak ls                     List existing backups"
     Write-Host "  ccdc bak restore C:\ccdc-backups\reghivves.zip"
@@ -240,18 +243,18 @@ function Invoke-CcdcBackupWeb {
         }
         if (-not (Test-CcdcBackupManifest $archive)) { return }
         Remove-CcdcAntiTamper $archive
-        $wwwroot = "C:\inetpub\wwwroot"
-        if (Test-Path $wwwroot) { Remove-Item "$wwwroot\*" -Recurse -Force -ErrorAction SilentlyContinue }
-        Expand-Archive -Path $archive -DestinationPath $wwwroot -Force
+        $inetpub = "C:\inetpub"
+        if (Test-Path $inetpub) { Remove-Item "$inetpub\*" -Recurse -Force -ErrorAction SilentlyContinue }
+        Expand-Archive -Path $archive -DestinationPath $inetpub -Force
         Set-CcdcAntiTamper $archive
-        Write-CcdcLog "Web content restored from $archive" -Level Success
+        Write-CcdcLog "IIS content restored from $archive" -Level Success
         Add-CcdcUndoLog "backup web -- restored from $archive"
         return
     }
 
-    $wwwroot = "C:\inetpub\wwwroot"
-    if (-not (Test-Path $wwwroot)) {
-        Write-CcdcLog "IIS wwwroot not found - skipping web backup" -Level Info
+    $inetpub = "C:\inetpub"
+    if (-not (Test-Path $inetpub)) {
+        Write-CcdcLog "IIS inetpub not found - skipping web backup" -Level Info
         return
     }
 
@@ -261,9 +264,9 @@ function Invoke-CcdcBackupWeb {
     $archive = Join-Path $backupDir "iiswww.zip"
     Remove-CcdcAntiTamper $archive
 
-    Write-CcdcLog "Backing up IIS wwwroot..." -Level Info
+    Write-CcdcLog "Backing up IIS (entire inetpub - wwwroot, FTP, config)..." -Level Info
     if (Test-Path $archive) { Remove-Item $archive -Force }
-    Compress-Archive -Path $wwwroot -DestinationPath $archive -Force
+    Compress-Archive -Path $inetpub -DestinationPath $archive -Force
 
     if (-not (Test-Path $archive)) {
         Write-CcdcLog "Failed to create web backup" -Level Error
@@ -273,7 +276,69 @@ function Invoke-CcdcBackupWeb {
     Set-CcdcAntiTamper $archive
     $size = "{0:N1} MB" -f ((Get-Item $archive -Force).Length / 1MB)
     Add-CcdcUndoLog "backup web -- $archive ($size)"
-    Write-CcdcLog "Web content backed up to $archive ($size)" -Level Success
+    Write-CcdcLog "IIS backed up to $archive ($size)" -Level Success
+}
+
+# ── Backup Grab (any service by name) ──
+
+function Invoke-CcdcBackupGrab {
+    param([string[]]$ExtraArgs)
+
+    $svcName = if ($ExtraArgs) { $ExtraArgs[0] } else { "" }
+    if (-not $svcName) {
+        Write-CcdcLog 'Usage: ccdc backup grab <service-name>' -Level Error
+        Write-CcdcLog 'Looks up the service binary path and backs up that directory.' -Level Info
+        return
+    }
+
+    # Look up service
+    $svc = Get-CimInstance Win32_Service -Filter "Name='$svcName'" -ErrorAction SilentlyContinue
+    if (-not $svc) {
+        # Try matching by display name
+        $svc = Get-CimInstance Win32_Service -Filter "DisplayName LIKE '%$svcName%'" -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+    if (-not $svc) {
+        Write-CcdcLog "Service '$svcName' not found" -Level Error
+        return
+    }
+
+    # Extract directory from binary path
+    $pathName = $svc.PathName
+    # Strip quotes and arguments
+    $exePath = $pathName -replace '^"([^"]+)".*', '$1'
+    $exePath = $exePath -replace '\s+[-/].*$', ''
+    $exePath = $exePath.Trim()
+    $svcDir = Split-Path $exePath -Parent
+
+    if (-not $svcDir -or -not (Test-Path $svcDir)) {
+        Write-CcdcLog "Cannot find service directory for '$($svc.Name)' (path: $pathName)" -Level Error
+        return
+    }
+
+    $backupDir = $global:CCDC_BACKUP_DIR
+    if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir -Force | Out-Null }
+
+    # Sanitize service name for filename
+    $safeName = $svc.Name -replace '[^a-zA-Z0-9_-]', '_'
+    $archive = Join-Path $backupDir "svc_${safeName}.zip"
+    Remove-CcdcAntiTamper $archive
+
+    Write-CcdcLog "Backing up service '$($svc.Name)' ($($svc.DisplayName))..." -Level Info
+    Write-CcdcLog "  Binary: $exePath" -Level Info
+    Write-CcdcLog "  Directory: $svcDir" -Level Info
+
+    if (Test-Path $archive) { Remove-Item $archive -Force }
+    Compress-Archive -Path $svcDir -DestinationPath $archive -Force
+
+    if (-not (Test-Path $archive)) {
+        Write-CcdcLog "Failed to create service backup" -Level Error
+        exit 1
+    }
+    New-CcdcBackupManifest $archive
+    Set-CcdcAntiTamper $archive
+    $size = "{0:N1} MB" -f ((Get-Item $archive -Force).Length / 1MB)
+    Add-CcdcUndoLog "backup grab $($svc.Name) -- $archive ($size)"
+    Write-CcdcLog "Service '$($svc.Name)' backed up to $archive ($size)" -Level Success
 }
 
 # ── Backup Services ──
@@ -289,18 +354,63 @@ function Invoke-CcdcBackupServices {
     $backupDir = $global:CCDC_BACKUP_DIR
     if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir -Force | Out-Null }
 
+    # Save CSV list
     $outFile = Join-Path $backupDir "svcc_lisst.csv"
     Remove-CcdcAntiTamper $outFile
 
     Write-CcdcLog "Saving service list..." -Level Info
-    Get-CimInstance Win32_Service |
-        Select-Object Name, DisplayName, State, StartMode, StartName, PathName |
-        Export-Csv $outFile -NoTypeInformation
+    $services = Get-CimInstance Win32_Service |
+        Select-Object Name, DisplayName, State, StartMode, StartName, PathName
+    $services | Export-Csv $outFile -NoTypeInformation
 
     New-CcdcBackupManifest $outFile
     Set-CcdcAntiTamper $outFile
     Add-CcdcUndoLog "backup services -- $outFile"
     Write-CcdcLog "Service list saved to $outFile" -Level Success
+
+    # Copy service binaries/DLLs into a zip
+    $binDir = Join-Path $env:TEMP "ccdc_svc_bins"
+    if (Test-Path $binDir) { Remove-Item $binDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+
+    $copied = 0
+    foreach ($svc in $services) {
+        if (-not $svc.PathName) { continue }
+        # Extract exe path from PathName (strip quotes and arguments)
+        $exePath = $svc.PathName -replace '^"([^"]+)".*', '$1'
+        $exePath = $exePath -replace '\s+[-/].*$', ''
+        $exePath = $exePath.Trim()
+
+        if ((Test-Path $exePath) -and ($exePath -notmatch '\\Windows\\system32\\svchost')) {
+            $safeName = $svc.Name -replace '[^a-zA-Z0-9_-]', '_'
+            $destDir = Join-Path $binDir $safeName
+            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+            # Copy the exe/dll and any dlls in same directory
+            $srcDir = Split-Path $exePath -Parent
+            Copy-Item $exePath $destDir -ErrorAction SilentlyContinue
+            Copy-Item (Join-Path $srcDir "*.dll") $destDir -ErrorAction SilentlyContinue
+            $copied++
+        }
+    }
+
+    if ($copied -gt 0) {
+        $binArchive = Join-Path $backupDir "svcc_biins.zip"
+        Remove-CcdcAntiTamper $binArchive
+        if (Test-Path $binArchive) { Remove-Item $binArchive -Force }
+        Compress-Archive -Path $binDir -DestinationPath $binArchive -Force
+        Remove-Item $binDir -Recurse -Force -ErrorAction SilentlyContinue
+
+        if (Test-Path $binArchive) {
+            New-CcdcBackupManifest $binArchive
+            Set-CcdcAntiTamper $binArchive
+            $size = "{0:N1} MB" -f ((Get-Item $binArchive -Force).Length / 1MB)
+            Add-CcdcUndoLog "backup services -- binaries $binArchive ($size)"
+            Write-CcdcLog "Service binaries backed up to $binArchive ($size) - $copied services" -Level Success
+        }
+    } else {
+        Remove-Item $binDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-CcdcLog "No non-system service binaries found to copy" -Level Info
+    }
 }
 
 # ── Backup IP ──
@@ -561,11 +671,15 @@ function Invoke-CcdcBackup {
             Invoke-CcdcBackupBinaries -ExtraArgs $CmdArgs
         }
         'web' {
-            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc backup web"; Write-Host "Backup IIS wwwroot"; return }
+            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc backup web"; Write-Host "Backup IIS (entire inetpub incl FTP)"; return }
             Invoke-CcdcBackupWeb -ExtraArgs $CmdArgs
         }
+        'grab' {
+            if ($global:CCDC_HELP) { Write-Host 'Usage: ccdc backup grab <service-name>'; Write-Host 'Backup a service directory by name'; return }
+            Invoke-CcdcBackupGrab -ExtraArgs $CmdArgs
+        }
         { $_ -in 'services','svc' } {
-            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc backup services"; Write-Host "Save service list to CSV"; return }
+            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc backup services"; Write-Host "Save service list + copy service binaries"; return }
             Invoke-CcdcBackupServices -ExtraArgs $CmdArgs
         }
         'ip' {

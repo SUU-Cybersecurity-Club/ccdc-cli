@@ -45,7 +45,7 @@ _ccdc_completions() {
             passwd)
                 subcmds="list root backup-user lock-all" ;;
             backup)
-                subcmds="etc binaries web services ip ports db full restore ls" ;;
+                subcmds="etc binaries web grab services ip ports db full restore ls" ;;
             discover)
                 subcmds="network ports users processes cron services firewall integrity all" ;;
             service)

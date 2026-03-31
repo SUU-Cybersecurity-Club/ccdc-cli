@@ -11,7 +11,8 @@ ccdc_backup_usage() {
     echo "  etc                  Backup /etc directory"
     echo "  binaries (bin)       Backup /usr/bin and /usr/sbin"
     echo "  web                  Backup /var/www/html and /opt web content"
-    echo "  services (svc)       Save service list snapshot"
+    echo "  grab <name>          Backup a service's files by name"
+    echo "  services (svc)       Save service list + copy service binaries"
     echo "  ip                   Save IP addresses and routes"
     echo "  ports                Save listening ports"
     echo "  db                   Dump MySQL/MariaDB databases"
@@ -29,6 +30,8 @@ ccdc_backup_usage() {
     echo "  ccdc bak etc                    Backup /etc"
     echo "  ccdc bak bin                    Backup system binaries"
     echo "  ccdc bak web                    Backup web content"
+    echo "  ccdc bak grab apache2           Backup Apache service files"
+    echo "  ccdc bak grab sshd              Backup OpenSSH files"
     echo "  ccdc bak db --password secret   Dump all MySQL databases"
     echo "  ccdc bak full                   Run all backups"
     echo "  ccdc bak ls                     List existing backups"
@@ -271,6 +274,107 @@ ccdc_backup_services() {
     _backup_protect "$outfile"
     ccdc_undo_log "backup services -- ${outfile}"
     ccdc_log success "Service list saved to ${outfile}"
+
+    # Copy non-system service binaries
+    local bindir
+    bindir="$(mktemp -d)"
+    local copied=0
+
+    while IFS= read -r unit_file; do
+        [[ -z "$unit_file" ]] && continue
+        local exec_path
+        exec_path="$(systemctl show "$unit_file" -p ExecStart --value 2>/dev/null | awk '{print $1}' | sed 's/^{.*path=//;s/[;}].*//')"
+        [[ -z "$exec_path" ]] && continue
+        [[ ! -f "$exec_path" ]] && continue
+        # Skip system binaries
+        [[ "$exec_path" == /usr/bin/* || "$exec_path" == /usr/sbin/* || "$exec_path" == /lib/systemd/* || "$exec_path" == /usr/lib/systemd/* ]] && continue
+
+        local svc_name
+        svc_name="$(basename "$unit_file" .service)"
+        local dest="${bindir}/${svc_name}"
+        mkdir -p "$dest"
+        local src_dir
+        src_dir="$(dirname "$exec_path")"
+        cp -a "$exec_path" "$dest/" 2>/dev/null || true
+        # Also grab config files and libs in same dir
+        cp -a "${src_dir}"/*.conf "$dest/" 2>/dev/null || true
+        cp -a "${src_dir}"/*.so "$dest/" 2>/dev/null || true
+        copied=$((copied + 1))
+    done < <(systemctl list-unit-files --type=service --no-legend --state=enabled 2>/dev/null | awk '{print $1}')
+
+    if [[ $copied -gt 0 ]]; then
+        local bin_archive="${CCDC_BACKUP_DIR}/svcc_biins.tar"
+        _backup_unprotect "$bin_archive"
+        tar -cpf "$bin_archive" -C "$bindir" . 2>/dev/null
+        rm -rf "$bindir"
+        if [[ -f "$bin_archive" ]]; then
+            _backup_create_manifest "$bin_archive"
+            _backup_protect "$bin_archive"
+            local size
+            size="$(du -sh "$bin_archive" 2>/dev/null | cut -f1)"
+            ccdc_undo_log "backup services -- binaries ${bin_archive} (${size})"
+            ccdc_log success "Service binaries backed up to ${bin_archive} (${size}) - ${copied} services"
+        fi
+    else
+        rm -rf "$bindir"
+        ccdc_log info "No non-system service binaries found to copy"
+    fi
+}
+
+# ── Backup Grab (any service by name) ──
+
+ccdc_backup_grab() {
+    local svc_name="${1:-}"
+    if [[ -z "$svc_name" ]]; then
+        ccdc_log error "Usage: ccdc backup grab <service-name>"
+        ccdc_log info "Looks up the service binary path and backs up that directory."
+        return 1
+    fi
+
+    # Find the service's ExecStart path
+    local exec_path
+    exec_path="$(systemctl show "${svc_name}.service" -p ExecStart --value 2>/dev/null | awk '{print $1}' | sed 's/^{.*path=//;s/[;}].*//')"
+
+    if [[ -z "$exec_path" || ! -f "$exec_path" ]]; then
+        # Try without .service suffix
+        exec_path="$(systemctl show "$svc_name" -p ExecStart --value 2>/dev/null | awk '{print $1}' | sed 's/^{.*path=//;s/[;}].*//')"
+    fi
+
+    if [[ -z "$exec_path" || ! -f "$exec_path" ]]; then
+        ccdc_log error "Service '${svc_name}' not found or has no binary path"
+        return 1
+    fi
+
+    local svc_dir
+    svc_dir="$(dirname "$exec_path")"
+    if [[ ! -d "$svc_dir" ]]; then
+        ccdc_log error "Service directory not found: ${svc_dir}"
+        return 1
+    fi
+
+    mkdir -p "$CCDC_BACKUP_DIR"
+    local safe_name
+    safe_name="$(echo "$svc_name" | tr -c 'a-zA-Z0-9_-' '_')"
+    local outfile="${CCDC_BACKUP_DIR}/svc_${safe_name}.tar"
+    _backup_unprotect "$outfile"
+
+    ccdc_log info "Backing up service '${svc_name}'..."
+    ccdc_log info "  Binary: ${exec_path}"
+    ccdc_log info "  Directory: ${svc_dir}"
+
+    tar -cpf "$outfile" "$svc_dir" 2>/dev/null
+    local rc=$?
+    if [[ $rc -eq 0 && -f "$outfile" ]]; then
+        _backup_create_manifest "$outfile"
+        _backup_protect "$outfile"
+        local size
+        size="$(du -sh "$outfile" 2>/dev/null | cut -f1)"
+        ccdc_undo_log "backup grab ${svc_name} -- ${outfile} (${size})"
+        ccdc_log success "Service '${svc_name}' backed up to ${outfile} (${size})"
+    else
+        ccdc_log error "Failed to backup service '${svc_name}'"
+        return 1
+    fi
 }
 
 # ── Backup IP ──
@@ -577,8 +681,12 @@ ccdc_backup_handler() {
             [[ "${CCDC_HELP:-false}" == true ]] && { echo "Usage: ccdc backup web"; echo "Backup /var/www/html and /opt web content"; return 0; }
             ccdc_backup_web "$@"
             ;;
+        grab)
+            [[ "${CCDC_HELP:-false}" == true ]] && { echo "Usage: ccdc backup grab <service-name>"; echo "Backup a service's files by name"; return 0; }
+            ccdc_backup_grab "$@"
+            ;;
         services|svc)
-            [[ "${CCDC_HELP:-false}" == true ]] && { echo "Usage: ccdc backup services"; echo "Save service list snapshot"; return 0; }
+            [[ "${CCDC_HELP:-false}" == true ]] && { echo "Usage: ccdc backup services"; echo "Save service list + copy service binaries"; return 0; }
             ccdc_backup_services "$@"
             ;;
         ip)
