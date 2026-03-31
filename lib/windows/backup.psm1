@@ -381,16 +381,19 @@ function Invoke-CcdcBackupServices {
         $exePath = $exePath -replace '\s+[-/].*$', ''
         $exePath = $exePath.Trim()
 
-        if ((Test-Path $exePath) -and ($exePath -notmatch '\\Windows\\system32\\svchost')) {
-            $safeName = $svc.Name -replace '[^a-zA-Z0-9_-]', '_'
-            $destDir = Join-Path $binDir $safeName
-            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-            # Copy the exe/dll and any dlls in same directory
-            $srcDir = Split-Path $exePath -Parent
-            Copy-Item $exePath $destDir -ErrorAction SilentlyContinue
-            Copy-Item (Join-Path $srcDir "*.dll") $destDir -ErrorAction SilentlyContinue
-            $copied++
+        if (-not (Test-Path $exePath)) { continue }
+        # Skip Windows system paths (except IIS)
+        $isIIS = $svc.Name -match '^(W3SVC|WAS|IISADMIN|FTPSVC|MsDepSvc)$'
+        if (-not $isIIS) {
+            if ($exePath -match '\\Windows\\' -or $exePath -match '\\Microsoft\.NET\\' -or $exePath -match '\\Windows Defender\\') { continue }
         }
+        $safeName = $svc.Name -replace '[^a-zA-Z0-9_-]', '_'
+        $destDir = Join-Path $binDir $safeName
+        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+        # Copy just the exe (skip DLLs for speed, use grab for deep backup)
+        $srcDir = Split-Path $exePath -Parent
+        Copy-Item $exePath $destDir -ErrorAction SilentlyContinue
+        $copied++
     }
 
     if ($copied -gt 0) {
