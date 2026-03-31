@@ -212,7 +212,7 @@ function Invoke-CcdcConfig {
         'init'  { Invoke-CcdcConfigInit }
         'set'   {
             if ($CmdArgs.Count -lt 2) {
-                Write-CcdcLog "Usage: .\ccdc.ps1 config set <key> <value>" -Level Error
+                Write-CcdcLog 'Usage: .\ccdc.ps1 config set <key> <value>' -Level Error
                 return
             }
             Set-CcdcConfigValue -Key $CmdArgs[0] -Value $CmdArgs[1]

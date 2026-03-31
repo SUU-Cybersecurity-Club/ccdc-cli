@@ -450,7 +450,7 @@ function Invoke-CcdcBackupRestore {
 
     $archive = if ($ExtraArgs) { $ExtraArgs[0] } else { "" }
     if (-not $archive) {
-        Write-CcdcLog "Usage: ccdc backup restore <archive-path>" -Level Error
+        Write-CcdcLog 'Usage: ccdc backup restore <archive-path>' -Level Error
         return
     }
 
@@ -573,7 +573,7 @@ function Invoke-CcdcBackup {
             Invoke-CcdcBackupFull -ExtraArgs $CmdArgs
         }
         'restore' {
-            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc backup restore <archive-path>"; Write-Host "Restore a specific backup by path"; return }
+            if ($global:CCDC_HELP) { Write-Host 'Usage: ccdc backup restore <archive-path>'; Write-Host 'Restore a specific backup by path'; return }
             Invoke-CcdcBackupRestore -ExtraArgs $CmdArgs
         }
         { $_ -in 'ls','list' } {

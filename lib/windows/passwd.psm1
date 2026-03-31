@@ -83,7 +83,7 @@ function Invoke-CcdcPasswdChange {
     )
 
     if (-not $Username) {
-        Write-CcdcLog "Usage: ccdc passwd <username> [--password <pass>]" -Level Error
+        Write-CcdcLog 'Usage: ccdc passwd <username> [--password <pass>]' -Level Error
         return
     }
 
@@ -146,7 +146,7 @@ function Invoke-CcdcPasswdChange {
 function Invoke-CcdcPasswdRoot {
     param([string[]]$ExtraArgs)
     if ($global:CCDC_HELP) {
-        Write-Host "Usage: ccdc passwd root [--password <pass>]"
+        Write-Host 'Usage: ccdc passwd root [--password <pass>]'
         Write-Host "Changes the Administrator password"
         return
     }
@@ -307,7 +307,7 @@ function Invoke-CcdcPasswdAdChange {
     param([string]$Username)
 
     if (-not $Username) {
-        Write-CcdcLog "Usage: ccdc passwd ad-change <username>" -Level Error
+        Write-CcdcLog 'Usage: ccdc passwd ad-change <username>' -Level Error
         return
     }
 
@@ -385,15 +385,15 @@ function Invoke-CcdcPasswd {
             Invoke-CcdcPasswdRoot -ExtraArgs $CmdArgs
         }
         { $_ -in 'backup-user','bak' } {
-            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc passwd backup-user [--name <name>] [--password <pass>]"; Write-Host "Create backup admin user (default: printer)"; return }
+            if ($global:CCDC_HELP) { Write-Host 'Usage: ccdc passwd backup-user [--name <name>] [--password <pass>]'; Write-Host 'Create backup admin user (default: printer)'; return }
             Invoke-CcdcPasswdBackupUser -ExtraArgs $CmdArgs
         }
         { $_ -in 'lock-all','lock' } {
-            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc passwd lock-all [--keep <user1,user2>]"; Write-Host "Disable all users except Administrator and backup"; return }
+            if ($global:CCDC_HELP) { Write-Host 'Usage: ccdc passwd lock-all [--keep <user1,user2>]'; Write-Host 'Disable all users except Administrator and backup'; return }
             Invoke-CcdcPasswdLockAll -ExtraArgs $CmdArgs
         }
         { $_ -in 'ad-change','ad' } {
-            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc passwd ad-change <username>"; Write-Host "Change AD account password (DC only)"; return }
+            if ($global:CCDC_HELP) { Write-Host 'Usage: ccdc passwd ad-change <username>'; Write-Host 'Change AD account password (DC only)'; return }
             Invoke-CcdcPasswdAdChange -Username ($CmdArgs | Select-Object -First 1)
         }
         'dsrm' {
@@ -402,7 +402,7 @@ function Invoke-CcdcPasswd {
         }
         '' { Show-CcdcPasswdUsage }
         default {
-            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc passwd <username> [--password <pass>]"; Write-Host "Change password for a specific user"; return }
+            if ($global:CCDC_HELP) { Write-Host 'Usage: ccdc passwd <username> [--password <pass>]'; Write-Host 'Change password for a specific user'; return }
             Invoke-CcdcPasswdChange -Username $Command -ExtraArgs $CmdArgs
         }
     }
