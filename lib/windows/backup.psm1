@@ -151,9 +151,16 @@ function Invoke-CcdcBackupEtc {
     }
 
     if (Test-Path $archive) { Remove-Item $archive -Force }
-    Compress-Archive -Path "$tempDir\*" -DestinationPath $archive -Force
+    $items = Get-ChildItem $tempDir
+    if ($items) {
+        Compress-Archive -Path $items.FullName -DestinationPath $archive -Force
+    }
     Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 
+    if (-not (Test-Path $archive)) {
+        Write-CcdcLog "Failed to create registry backup" -Level Error
+        exit 1
+    }
     New-CcdcBackupManifest $archive
     Set-CcdcAntiTamper $archive
     $size = "{0:N1} MB" -f ((Get-Item $archive).Length / 1MB)
@@ -209,9 +216,16 @@ function Invoke-CcdcBackupBinaries {
     }
 
     if (Test-Path $archive) { Remove-Item $archive -Force }
-    Compress-Archive -Path "$tempDir\*" -DestinationPath $archive -Force
+    $items = Get-ChildItem $tempDir -Recurse -File
+    if ($items) {
+        Compress-Archive -Path $items.FullName -DestinationPath $archive -Force
+    }
     Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 
+    if (-not (Test-Path $archive)) {
+        Write-CcdcLog "Failed to create binaries backup" -Level Error
+        exit 1
+    }
     New-CcdcBackupManifest $archive
     Set-CcdcAntiTamper $archive
     $size = "{0:N1} MB" -f ((Get-Item $archive).Length / 1MB)
@@ -255,8 +269,15 @@ function Invoke-CcdcBackupWeb {
 
     Write-CcdcLog "Backing up IIS wwwroot..." -Level Info
     if (Test-Path $archive) { Remove-Item $archive -Force }
-    Compress-Archive -Path "$wwwroot\*" -DestinationPath $archive -Force
+    $items = Get-ChildItem $wwwroot
+    if ($items) {
+        Compress-Archive -Path $items.FullName -DestinationPath $archive -Force
+    }
 
+    if (-not (Test-Path $archive)) {
+        Write-CcdcLog "Failed to create web backup" -Level Error
+        exit 1
+    }
     New-CcdcBackupManifest $archive
     Set-CcdcAntiTamper $archive
     $size = "{0:N1} MB" -f ((Get-Item $archive).Length / 1MB)
