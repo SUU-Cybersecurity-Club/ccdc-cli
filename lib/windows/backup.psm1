@@ -163,7 +163,7 @@ function Invoke-CcdcBackupEtc {
     }
     New-CcdcBackupManifest $archive
     Set-CcdcAntiTamper $archive
-    $size = "{0:N1} MB" -f ((Get-Item $archive).Length / 1MB)
+    $size = "{0:N1} MB" -f ((Get-Item $archive -Force).Length / 1MB)
     Add-CcdcUndoLog "backup etc -- $archive ($size)"
     Write-CcdcLog "Registry hives backed up to $archive ($size)" -Level Success
 }
@@ -228,7 +228,7 @@ function Invoke-CcdcBackupBinaries {
     }
     New-CcdcBackupManifest $archive
     Set-CcdcAntiTamper $archive
-    $size = "{0:N1} MB" -f ((Get-Item $archive).Length / 1MB)
+    $size = "{0:N1} MB" -f ((Get-Item $archive -Force).Length / 1MB)
     Add-CcdcUndoLog "backup binaries -- $archive ($size)"
     Write-CcdcLog "Binaries backed up to $archive ($size)" -Level Success
 }
@@ -280,7 +280,7 @@ function Invoke-CcdcBackupWeb {
     }
     New-CcdcBackupManifest $archive
     Set-CcdcAntiTamper $archive
-    $size = "{0:N1} MB" -f ((Get-Item $archive).Length / 1MB)
+    $size = "{0:N1} MB" -f ((Get-Item $archive -Force).Length / 1MB)
     Add-CcdcUndoLog "backup web -- $archive ($size)"
     Write-CcdcLog "Web content backed up to $archive ($size)" -Level Success
 }
@@ -522,7 +522,7 @@ function Invoke-CcdcBackupList {
     Write-Host ("{0,-25} {1,-12} {2,-20} {3}" -f "NAME", "SIZE", "DATE", "SHA256")
     Write-Host ("{0,-25} {1,-12} {2,-20} {3}" -f "----", "----", "----", "------")
 
-    $files = Get-ChildItem $backupDir -File | Where-Object { -not $_.Name.StartsWith('.') }
+    $files = Get-ChildItem $backupDir -File -Force | Where-Object { -not $_.Name.StartsWith('.') }
     foreach ($file in $files) {
         $size = if ($file.Length -gt 1MB) { "{0:N1} MB" -f ($file.Length / 1MB) }
                elseif ($file.Length -gt 1KB) { "{0:N1} KB" -f ($file.Length / 1KB) }
