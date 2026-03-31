@@ -264,9 +264,15 @@ function Invoke-CcdcBackupWeb {
     $archive = Join-Path $backupDir "iiswww.zip"
     Remove-CcdcAntiTamper $archive
 
-    Write-CcdcLog "Backing up IIS (entire inetpub - wwwroot, FTP, config)..." -Level Info
+    Write-CcdcLog "Backing up IIS (inetpub - wwwroot, FTP, config)..." -Level Info
     if (Test-Path $archive) { Remove-Item $archive -Force }
-    Compress-Archive -Path $inetpub -DestinationPath $archive -Force
+
+    # Copy to temp excluding temp/logs dirs (locked files from running IIS)
+    $tempCopy = Join-Path $env:TEMP "ccdc_iis_backup"
+    if (Test-Path $tempCopy) { Remove-Item $tempCopy -Recurse -Force }
+    robocopy $inetpub $tempCopy /E /XD temp logs history /XF *.tmp *.log /NFL /NDL /NJH /NJS /R:0 /W:0 2>$null
+    Compress-Archive -Path $tempCopy -DestinationPath $archive -Force
+    Remove-Item $tempCopy -Recurse -Force -ErrorAction SilentlyContinue
 
     if (-not (Test-Path $archive)) {
         Write-CcdcLog "Failed to create web backup" -Level Error
@@ -287,14 +293,13 @@ function Invoke-CcdcBackupGrab {
     $svcName = if ($ExtraArgs) { $ExtraArgs[0] } else { "" }
     if (-not $svcName) {
         Write-CcdcLog 'Usage: ccdc backup grab <service-name>' -Level Error
-        Write-CcdcLog 'Looks up the service binary path and backs up that directory.' -Level Info
+        Write-CcdcLog 'Looks up the service DLL/binary and backs it up.' -Level Info
         return
     }
 
     # Look up service
     $svc = Get-CimInstance Win32_Service -Filter "Name='$svcName'" -ErrorAction SilentlyContinue
     if (-not $svc) {
-        # Try matching by display name
         $svc = Get-CimInstance Win32_Service -Filter "DisplayName LIKE '%$svcName%'" -ErrorAction SilentlyContinue | Select-Object -First 1
     }
     if (-not $svc) {
@@ -302,33 +307,75 @@ function Invoke-CcdcBackupGrab {
         return
     }
 
-    # Extract directory from binary path
+    # Collect files to back up
+    $filesToCopy = @()
+
+    # Check for ServiceDll in registry (svchost-hosted services like W3SVC)
+    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$($svc.Name)\Parameters"
+    $serviceDll = (Get-ItemProperty $regPath -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
+    if ($serviceDll -and (Test-Path $serviceDll)) {
+        $filesToCopy += $serviceDll
+        # Also grab other DLLs in same directory
+        $dllDir = Split-Path $serviceDll -Parent
+        Get-ChildItem $dllDir -Filter "*.dll" -ErrorAction SilentlyContinue | ForEach-Object {
+            $filesToCopy += $_.FullName
+        }
+    }
+
+    # Also grab the binary itself (if not svchost)
     $pathName = $svc.PathName
-    # Strip quotes and arguments
     $exePath = $pathName -replace '^"([^"]+)".*', '$1'
     $exePath = $exePath -replace '\s+[-/].*$', ''
     $exePath = $exePath.Trim()
-    $svcDir = Split-Path $exePath -Parent
+    if ((Test-Path $exePath) -and $exePath -notmatch 'svchost\.exe') {
+        $filesToCopy += $exePath
+        $exeDir = Split-Path $exePath -Parent
+        Get-ChildItem $exeDir -Filter "*.dll" -ErrorAction SilentlyContinue | ForEach-Object {
+            $filesToCopy += $_.FullName
+        }
+    }
 
-    if (-not $svcDir -or -not (Test-Path $svcDir)) {
-        Write-CcdcLog "Cannot find service directory for '$($svc.Name)' (path: $pathName)" -Level Error
+    # Also check for config files
+    $configPaths = @(
+        "HKLM:\SYSTEM\CurrentControlSet\Services\$($svc.Name)"
+    )
+    foreach ($cp in $configPaths) {
+        $imgPath = (Get-ItemProperty $cp -Name ImagePath -ErrorAction SilentlyContinue).ImagePath
+        if ($imgPath) {
+            $cleanPath = $imgPath -replace '^"([^"]+)".*', '$1' -replace '\s+[-/].*$', ''
+            if ((Test-Path $cleanPath) -and ($cleanPath -notin $filesToCopy)) {
+                $filesToCopy += $cleanPath
+            }
+        }
+    }
+
+    $filesToCopy = $filesToCopy | Select-Object -Unique
+    if ($filesToCopy.Count -eq 0) {
+        Write-CcdcLog "No files found for service '$($svc.Name)'" -Level Error
         return
     }
 
     $backupDir = $global:CCDC_BACKUP_DIR
     if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir -Force | Out-Null }
 
-    # Sanitize service name for filename
     $safeName = $svc.Name -replace '[^a-zA-Z0-9_-]', '_'
     $archive = Join-Path $backupDir "svc_${safeName}.zip"
     Remove-CcdcAntiTamper $archive
 
     Write-CcdcLog "Backing up service '$($svc.Name)' ($($svc.DisplayName))..." -Level Info
-    Write-CcdcLog "  Binary: $exePath" -Level Info
-    Write-CcdcLog "  Directory: $svcDir" -Level Info
+    Write-CcdcLog "  Files: $($filesToCopy.Count) files" -Level Info
+
+    # Copy files to temp dir then zip
+    $tempDir = Join-Path $env:TEMP "ccdc_grab_$safeName"
+    if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+    foreach ($f in $filesToCopy) {
+        Copy-Item $f $tempDir -ErrorAction SilentlyContinue
+    }
 
     if (Test-Path $archive) { Remove-Item $archive -Force }
-    Compress-Archive -Path $svcDir -DestinationPath $archive -Force
+    Compress-Archive -Path $tempDir -DestinationPath $archive -Force
+    Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 
     if (-not (Test-Path $archive)) {
         Write-CcdcLog "Failed to create service backup" -Level Error
@@ -376,23 +423,34 @@ function Invoke-CcdcBackupServices {
     $copied = 0
     foreach ($svc in $services) {
         if (-not $svc.PathName) { continue }
-        # Extract exe path from PathName (strip quotes and arguments)
         $exePath = $svc.PathName -replace '^"([^"]+)".*', '$1'
         $exePath = $exePath -replace '\s+[-/].*$', ''
         $exePath = $exePath.Trim()
 
-        if (-not (Test-Path $exePath)) { continue }
-        # Skip Windows system paths (except IIS)
-        $isIIS = $svc.Name -match '^(W3SVC|WAS|IISADMIN|FTPSVC|MsDepSvc)$'
-        if (-not $isIIS) {
-            if ($exePath -match '\\Windows\\' -or $exePath -match '\\Microsoft\.NET\\' -or $exePath -match '\\Windows Defender\\') { continue }
+        # For svchost services, grab the ServiceDll from registry instead
+        $serviceDll = $null
+        if ($exePath -match 'svchost\.exe') {
+            $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$($svc.Name)\Parameters"
+            $serviceDll = (Get-ItemProperty $regPath -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
         }
+
+        # Determine what to copy
+        $fileToCopy = $null
+        if ($serviceDll -and (Test-Path $serviceDll)) {
+            # Only include IIS-related svchost services
+            $isIIS = $svc.Name -match '^(W3SVC|WAS|IISADMIN|FTPSVC|MsDepSvc)$'
+            if ($isIIS) { $fileToCopy = $serviceDll }
+            else { continue }
+        } elseif ((Test-Path $exePath) -and $exePath -notmatch 'svchost\.exe') {
+            # Skip Windows system paths
+            if ($exePath -match '\\Windows\\' -or $exePath -match '\\Microsoft\.NET\\' -or $exePath -match '\\Windows Defender\\') { continue }
+            $fileToCopy = $exePath
+        } else { continue }
+
         $safeName = $svc.Name -replace '[^a-zA-Z0-9_-]', '_'
         $destDir = Join-Path $binDir $safeName
         New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-        # Copy just the exe (skip DLLs for speed, use grab for deep backup)
-        $srcDir = Split-Path $exePath -Parent
-        Copy-Item $exePath $destDir -ErrorAction SilentlyContinue
+        Copy-Item $fileToCopy $destDir -ErrorAction SilentlyContinue
         $copied++
     }
 
