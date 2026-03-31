@@ -30,6 +30,20 @@ Write-CcdcLog 'Usage: ccdc passwd <username>' -Level Error
 
 This applies to `Write-CcdcLog`, `Write-Host`, and any function call where the string contains angle brackets. If the string also needs variable interpolation, use subexpression syntax with single-quoted literals or escape with backtick: `` `< `> ``
 
+### No Unicode in .psm1 strings
+
+Em-dashes (`—`), curly quotes, and other non-ASCII characters in .psm1 string arguments cause parse failures depending on file encoding. Use plain ASCII alternatives:
+
+```powershell
+# BAD — em-dash causes parse error
+Write-CcdcLog "Not found — skipping" -Level Info
+
+# GOOD — plain hyphen
+Write-CcdcLog "Not found - skipping" -Level Info
+```
+
+Unicode in comments (like `# ── Section ──`) is fine. Only strings passed to functions are affected.
+
 ### WinRM quoting in pyinfra tests
 
 When pyinfra sends commands over WinRM, they get base64-encoded. Single quotes in Python strings can collide with PowerShell's string parsing. Use Python single quotes on the outside with double quotes for the PowerShell string:

@@ -31,6 +31,22 @@ If variable interpolation is needed alongside angle brackets, use:
 Write-CcdcLog ('Usage: ccdc foo <arg> for ' + $variable) -Level Error
 ```
 
+## Critical: No Unicode in .psm1 Strings
+
+**Never use em-dashes (`—`), curly quotes, or other non-ASCII characters in .psm1 string arguments.**
+
+These cause `The string is missing the terminator` errors that cascade into `Missing closing '}'` errors throughout the file, making the entire module fail to load.
+
+```powershell
+# WRONG — em-dash breaks parser
+Write-CcdcLog "Not found — skipping" -Level Info
+
+# RIGHT — plain ASCII hyphen
+Write-CcdcLog "Not found - skipping" -Level Info
+```
+
+Unicode in **comments** (`# ── Section ──`) is fine. Only affects strings passed to functions.
+
 ## WinRM / pyinfra Test Quoting
 
 Commands sent via pyinfra over WinRM are base64-encoded. Nested single quotes break. In `phase*_windows.py` test files:

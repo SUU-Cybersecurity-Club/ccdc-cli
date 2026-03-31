@@ -243,7 +243,7 @@ function Invoke-CcdcBackupWeb {
 
     $wwwroot = "C:\inetpub\wwwroot"
     if (-not (Test-Path $wwwroot)) {
-        Write-CcdcLog "IIS wwwroot not found — skipping web backup" -Level Info
+        Write-CcdcLog "IIS wwwroot not found - skipping web backup" -Level Info
         return
     }
 
