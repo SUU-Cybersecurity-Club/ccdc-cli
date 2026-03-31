@@ -7,7 +7,8 @@ set -euo pipefail
 _needs_root=true
 for _arg in "$@"; do
     case "$_arg" in
-        --help|-h|--version) _needs_root=false; break ;;
+        --help|--version) _needs_root=false; break ;;
+        -h) _needs_root=false; break ;;
     esac
 done
 if [[ "$_needs_root" == true && "${EUID:-$(id -u)}" -ne 0 ]]; then

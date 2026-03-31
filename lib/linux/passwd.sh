@@ -398,10 +398,12 @@ ccdc_passwd_handler() {
             ccdc_passwd_lock_all "$@"
             ;;
         ad-change|ad)
+            [[ "${CCDC_HELP:-false}" == true ]] && { echo "ad-change is a Windows-only command"; return 0; }
             ccdc_log error "ad-change is a Windows-only command"
             return 1
             ;;
         dsrm)
+            [[ "${CCDC_HELP:-false}" == true ]] && { echo "dsrm is a Windows-only command"; return 0; }
             ccdc_log error "dsrm is a Windows-only command"
             return 1
             ;;
@@ -410,6 +412,7 @@ ccdc_passwd_handler() {
             ;;
         *)
             # Treat any unrecognized subcommand as a username
+            [[ "${CCDC_HELP:-false}" == true ]] && { echo "Usage: ccdc passwd <username>"; echo "Change password for a specific user (interactive)"; return 0; }
             ccdc_passwd_change "$cmd" "$@"
             ;;
     esac

@@ -19,7 +19,19 @@ function Show-CcdcPasswdUsage {
     Write-Host "Options:"
     Write-Host "  --name <name>        Custom backup username (for backup-user)"
     Write-Host "  --keep <u1,u2>       Users to skip when locking (for lock-all)"
+    Write-Host "  --password <pass>    Set password non-interactively"
     Write-Host "  --undo               Undo the last run of a command"
+    Write-Host ""
+    Write-Host "Examples:"
+    Write-Host "  ccdc pw ls                      List all users"
+    Write-Host "  ccdc pw jsmith                  Change jsmith's password"
+    Write-Host "  ccdc pw root                    Change Administrator password"
+    Write-Host "  ccdc pw bak                     Create 'printer' backup admin"
+    Write-Host "  ccdc pw bak --name admin2       Create 'admin2' backup admin"
+    Write-Host "  ccdc pw lock                    Lock all non-essential users"
+    Write-Host "  ccdc pw lock --keep svc1,svc2   Lock all except listed users"
+    Write-Host "  ccdc pw ad jsmith               Change AD password (DC only)"
+    Write-Host "  ccdc pw dsrm                    Reset DSRM password (DC only)"
 }
 
 # ── List Users ──
@@ -365,15 +377,32 @@ function Invoke-CcdcPasswd {
     }
 
     switch ($Command) {
-        { $_ -in 'list','ls' }          { Invoke-CcdcPasswdList }
-        'root'                           { Invoke-CcdcPasswdRoot -ExtraArgs $CmdArgs }
-        { $_ -in 'backup-user','bak' }  { Invoke-CcdcPasswdBackupUser -ExtraArgs $CmdArgs }
-        { $_ -in 'lock-all','lock' }    { Invoke-CcdcPasswdLockAll -ExtraArgs $CmdArgs }
-        { $_ -in 'ad-change','ad' }     { Invoke-CcdcPasswdAdChange -Username ($CmdArgs | Select-Object -First 1) }
-        'dsrm'                           { Invoke-CcdcPasswdDsrm }
-        ''                               { Show-CcdcPasswdUsage }
+        { $_ -in 'list','ls' } {
+            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc passwd list"; Write-Host "List all local users with groups and status"; return }
+            Invoke-CcdcPasswdList
+        }
+        'root' {
+            Invoke-CcdcPasswdRoot -ExtraArgs $CmdArgs
+        }
+        { $_ -in 'backup-user','bak' } {
+            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc passwd backup-user [--name <name>] [--password <pass>]"; Write-Host "Create backup admin user (default: printer)"; return }
+            Invoke-CcdcPasswdBackupUser -ExtraArgs $CmdArgs
+        }
+        { $_ -in 'lock-all','lock' } {
+            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc passwd lock-all [--keep <user1,user2>]"; Write-Host "Disable all users except Administrator and backup"; return }
+            Invoke-CcdcPasswdLockAll -ExtraArgs $CmdArgs
+        }
+        { $_ -in 'ad-change','ad' } {
+            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc passwd ad-change <username>"; Write-Host "Change AD account password (DC only)"; return }
+            Invoke-CcdcPasswdAdChange -Username ($CmdArgs | Select-Object -First 1)
+        }
+        'dsrm' {
+            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc passwd dsrm"; Write-Host "Reset DSRM password (DC only)"; return }
+            Invoke-CcdcPasswdDsrm
+        }
+        '' { Show-CcdcPasswdUsage }
         default {
-            # Treat unrecognized subcommand as a username
+            if ($global:CCDC_HELP) { Write-Host "Usage: ccdc passwd <username> [--password <pass>]"; Write-Host "Change password for a specific user"; return }
             Invoke-CcdcPasswdChange -Username $Command -ExtraArgs $CmdArgs
         }
     }
