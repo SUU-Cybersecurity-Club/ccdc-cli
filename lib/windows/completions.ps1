@@ -10,7 +10,7 @@ $ccdcCategories = @(
 
 $ccdcSubcommands = @{
     'passwd'      = @('list','root','backup-user','lock-all','ad-change','dsrm')
-    'backup'      = @('etc','binaries','web','services','db','full','restore')
+    'backup'      = @('etc','binaries','web','services','ip','ports','db','full','restore','ls')
     'discover'    = @('network','ports','users','processes','cron','services','firewall','integrity','all')
     'service'     = @('list','stop','disable','enable','cockpit')
     'firewall'    = @('on','allow-in','block-in','allow-out','block-out','drop-all-in','drop-all-out','allow-only-in','block-ip','status','save','allow-internet','block-internet')

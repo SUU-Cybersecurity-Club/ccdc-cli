@@ -178,6 +178,8 @@ Must happen early — everything after this can be undone by restoring backups.
 - [ ] `ccdc backup services` — save service list to CSV/text
   - Linux: `systemctl list-units --type=service`
   - Windows: `Get-CimInstance Win32_Service | Export-Csv`
+- [ ] `ccdc backup ip` — save ip a and ipconfig esc stuff routes too
+- [ ] `ccdc backup ports` — save ports via ss, netstat etc.
 - [ ] `ccdc backup db` — mysqldump all databases
   - Prompt for MySQL root password or read from config
   - Dump each database individually + `--all-databases`
