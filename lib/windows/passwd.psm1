@@ -132,12 +132,13 @@ function Invoke-CcdcPasswdChange {
 # ── Change Root (Administrator) ──
 
 function Invoke-CcdcPasswdRoot {
+    param([string[]]$ExtraArgs)
     if ($global:CCDC_HELP) {
-        Write-Host "Usage: ccdc passwd root"
+        Write-Host "Usage: ccdc passwd root [--password <pass>]"
         Write-Host "Changes the Administrator password"
         return
     }
-    Invoke-CcdcPasswdChange -Username "Administrator"
+    Invoke-CcdcPasswdChange -Username "Administrator" -ExtraArgs $ExtraArgs
 }
 
 # ── Backup User ──
@@ -365,7 +366,7 @@ function Invoke-CcdcPasswd {
 
     switch ($Command) {
         { $_ -in 'list','ls' }          { Invoke-CcdcPasswdList }
-        'root'                           { Invoke-CcdcPasswdRoot }
+        'root'                           { Invoke-CcdcPasswdRoot -ExtraArgs $CmdArgs }
         { $_ -in 'backup-user','bak' }  { Invoke-CcdcPasswdBackupUser -ExtraArgs $CmdArgs }
         { $_ -in 'lock-all','lock' }    { Invoke-CcdcPasswdLockAll -ExtraArgs $CmdArgs }
         { $_ -in 'ad-change','ad' }     { Invoke-CcdcPasswdAdChange -Username ($CmdArgs | Select-Object -First 1) }
