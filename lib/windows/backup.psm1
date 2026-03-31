@@ -151,10 +151,7 @@ function Invoke-CcdcBackupEtc {
     }
 
     if (Test-Path $archive) { Remove-Item $archive -Force }
-    $items = Get-ChildItem $tempDir
-    if ($items) {
-        Compress-Archive -Path $items.FullName -DestinationPath $archive -Force
-    }
+    Compress-Archive -Path $tempDir -DestinationPath $archive -Force
     Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 
     if (-not (Test-Path $archive)) {
@@ -216,10 +213,7 @@ function Invoke-CcdcBackupBinaries {
     }
 
     if (Test-Path $archive) { Remove-Item $archive -Force }
-    $items = Get-ChildItem $tempDir -Recurse -File
-    if ($items) {
-        Compress-Archive -Path $items.FullName -DestinationPath $archive -Force
-    }
+    Compress-Archive -Path $tempDir -DestinationPath $archive -Force
     Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 
     if (-not (Test-Path $archive)) {
@@ -269,10 +263,7 @@ function Invoke-CcdcBackupWeb {
 
     Write-CcdcLog "Backing up IIS wwwroot..." -Level Info
     if (Test-Path $archive) { Remove-Item $archive -Force }
-    $items = Get-ChildItem $wwwroot
-    if ($items) {
-        Compress-Archive -Path $items.FullName -DestinationPath $archive -Force
-    }
+    Compress-Archive -Path $wwwroot -DestinationPath $archive -Force
 
     if (-not (Test-Path $archive)) {
         Write-CcdcLog "Failed to create web backup" -Level Error
