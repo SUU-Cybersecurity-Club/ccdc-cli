@@ -125,7 +125,7 @@ function Show-CcdcUndoLog {
 function Invoke-CcdcUndo {
     param(
         [string]$Command,
-        [string[]]$Args
+        [string[]]$CmdArgs
     )
     switch ($Command) {
         { $_ -in 'log','show','' } { Show-CcdcUndoLog }

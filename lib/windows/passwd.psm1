@@ -355,7 +355,7 @@ function Invoke-CcdcPasswdDsrm {
 function Invoke-CcdcPasswd {
     param(
         [string]$Command,
-        [string[]]$Args
+        [string[]]$CmdArgs
     )
 
     if ($global:CCDC_HELP -and -not $Command) {
@@ -366,14 +366,14 @@ function Invoke-CcdcPasswd {
     switch ($Command) {
         { $_ -in 'list','ls' }          { Invoke-CcdcPasswdList }
         'root'                           { Invoke-CcdcPasswdRoot }
-        { $_ -in 'backup-user','bak' }  { Invoke-CcdcPasswdBackupUser -ExtraArgs $Args }
-        { $_ -in 'lock-all','lock' }    { Invoke-CcdcPasswdLockAll -ExtraArgs $Args }
-        { $_ -in 'ad-change','ad' }     { Invoke-CcdcPasswdAdChange -Username ($Args | Select-Object -First 1) }
+        { $_ -in 'backup-user','bak' }  { Invoke-CcdcPasswdBackupUser -ExtraArgs $CmdArgs }
+        { $_ -in 'lock-all','lock' }    { Invoke-CcdcPasswdLockAll -ExtraArgs $CmdArgs }
+        { $_ -in 'ad-change','ad' }     { Invoke-CcdcPasswdAdChange -Username ($CmdArgs | Select-Object -First 1) }
         'dsrm'                           { Invoke-CcdcPasswdDsrm }
         ''                               { Show-CcdcPasswdUsage }
         default {
             # Treat unrecognized subcommand as a username
-            Invoke-CcdcPasswdChange -Username $Command -ExtraArgs $Args
+            Invoke-CcdcPasswdChange -Username $Command -ExtraArgs $CmdArgs
         }
     }
 }

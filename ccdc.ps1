@@ -158,10 +158,10 @@ if (-not $resolvedCategory) {
 # ── Route to Module ──
 switch ($resolvedCategory) {
     'config' {
-        Invoke-CcdcConfig -Command $Command -Args $RemainingArgs
+        Invoke-CcdcConfig -Command $Command -CmdArgs $RemainingArgs
     }
     'undo' {
-        Invoke-CcdcUndo -Command $Command -Args $RemainingArgs
+        Invoke-CcdcUndo -Command $Command -CmdArgs $RemainingArgs
     }
     { $_ -in 'passwd','backup','discover','service','firewall','harden','siem','install','net' } {
         $modulePath = Join-Path $global:CCDC_DIR "lib/windows/$resolvedCategory.psm1"
@@ -171,7 +171,7 @@ switch ($resolvedCategory) {
         }
         Import-Module $modulePath -Force -DisableNameChecking
         $handlerName = "Invoke-Ccdc$(($resolvedCategory.Substring(0,1).ToUpper() + $resolvedCategory.Substring(1)))"
-        & $handlerName -Command $Command -Args $RemainingArgs
+        & $handlerName -Command $Command -CmdArgs $RemainingArgs
     }
     'comp-start' {
         $modulePath = Join-Path $global:CCDC_DIR "lib/windows/comp-start.psm1"
@@ -180,7 +180,7 @@ switch ($resolvedCategory) {
             exit 1
         }
         Import-Module $modulePath -Force -DisableNameChecking
-        Invoke-CcdcCompStart -Args $RemainingArgs
+        Invoke-CcdcCompStart -CmdArgs $RemainingArgs
     }
     'copy-paster' {
         $script = Join-Path $global:CCDC_DIR "lib/copy-paster/copy-paster.ps1"

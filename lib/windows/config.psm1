@@ -200,7 +200,7 @@ function Show-CcdcConfigUsage {
 function Invoke-CcdcConfig {
     param(
         [string]$Command,
-        [string[]]$Args
+        [string[]]$CmdArgs
     )
 
     if ($global:CCDC_HELP -and -not $Command) {
@@ -211,11 +211,11 @@ function Invoke-CcdcConfig {
     switch ($Command) {
         'init'  { Invoke-CcdcConfigInit }
         'set'   {
-            if ($Args.Count -lt 2) {
+            if ($CmdArgs.Count -lt 2) {
                 Write-CcdcLog "Usage: .\ccdc.ps1 config set <key> <value>" -Level Error
                 return
             }
-            Set-CcdcConfigValue -Key $Args[0] -Value $Args[1]
+            Set-CcdcConfigValue -Key $CmdArgs[0] -Value $CmdArgs[1]
         }
         'show'  { Show-CcdcConfig }
         'reset' { Reset-CcdcConfig }
