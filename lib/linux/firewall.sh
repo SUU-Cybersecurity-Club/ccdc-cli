@@ -1027,16 +1027,16 @@ ccdc_firewall_on() {
 }
 
 ccdc_firewall_allow_in() {
+    if [[ "${CCDC_UNDO:-false}" == true ]]; then
+        _fw_undo "allow-in"
+        return $?
+    fi
+
     local port="${1:-}"
     local proto="${2:-tcp}"
     if [[ -z "$port" ]]; then
         ccdc_log error "Usage: ccdc firewall allow-in <port> [proto]"
         return 1
-    fi
-
-    if [[ "${CCDC_UNDO:-false}" == true ]]; then
-        _fw_undo "allow-in"
-        return $?
     fi
 
     local snapshot_dir
@@ -1049,16 +1049,16 @@ ccdc_firewall_allow_in() {
 }
 
 ccdc_firewall_block_in() {
+    if [[ "${CCDC_UNDO:-false}" == true ]]; then
+        _fw_undo "block-in"
+        return $?
+    fi
+
     local port="${1:-}"
     local proto="${2:-tcp}"
     if [[ -z "$port" ]]; then
         ccdc_log error "Usage: ccdc firewall block-in <port> [proto]"
         return 1
-    fi
-
-    if [[ "${CCDC_UNDO:-false}" == true ]]; then
-        _fw_undo "block-in"
-        return $?
     fi
 
     local snapshot_dir
@@ -1071,16 +1071,16 @@ ccdc_firewall_block_in() {
 }
 
 ccdc_firewall_allow_out() {
+    if [[ "${CCDC_UNDO:-false}" == true ]]; then
+        _fw_undo "allow-out"
+        return $?
+    fi
+
     local port="${1:-}"
     local proto="${2:-tcp}"
     if [[ -z "$port" ]]; then
         ccdc_log error "Usage: ccdc firewall allow-out <port> [proto]"
         return 1
-    fi
-
-    if [[ "${CCDC_UNDO:-false}" == true ]]; then
-        _fw_undo "allow-out"
-        return $?
     fi
 
     local snapshot_dir
@@ -1093,16 +1093,16 @@ ccdc_firewall_allow_out() {
 }
 
 ccdc_firewall_block_out() {
+    if [[ "${CCDC_UNDO:-false}" == true ]]; then
+        _fw_undo "block-out"
+        return $?
+    fi
+
     local port="${1:-}"
     local proto="${2:-tcp}"
     if [[ -z "$port" ]]; then
         ccdc_log error "Usage: ccdc firewall block-out <port> [proto]"
         return 1
-    fi
-
-    if [[ "${CCDC_UNDO:-false}" == true ]]; then
-        _fw_undo "block-out"
-        return $?
     fi
 
     local snapshot_dir
@@ -1174,15 +1174,15 @@ ccdc_firewall_allow_only_in() {
 }
 
 ccdc_firewall_block_ip() {
+    if [[ "${CCDC_UNDO:-false}" == true ]]; then
+        _fw_undo "block-ip"
+        return $?
+    fi
+
     local ip="${1:-}"
     if [[ -z "$ip" ]]; then
         ccdc_log error "Usage: ccdc firewall block-ip <ip>"
         return 1
-    fi
-
-    if [[ "${CCDC_UNDO:-false}" == true ]]; then
-        _fw_undo "block-ip"
-        return $?
     fi
 
     local snapshot_dir
