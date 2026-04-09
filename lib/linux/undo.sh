@@ -9,7 +9,16 @@
 
 ccdc_undo_create_baseline() {
     local base="${CCDC_UNDO_DIR}/original"
+
+    # Skip if baseline already exists (immutable files from prior run)
+    if [[ -f "${base}/.created" ]]; then
+        ccdc_log info "Baseline already exists at ${base} -- skipping"
+        return 0
+    fi
+
     mkdir -p "$base"
+    # Remove immutable in case of partial prior run
+    chattr -i -R "${base}" 2>/dev/null || true
     ccdc_log info "Creating initial baseline snapshot..."
 
     # Firewall rules (capture from all available backends)
@@ -36,11 +45,13 @@ ccdc_undo_create_baseline() {
     # Service list
     systemctl list-unit-files --type=service > "${base}/services.list" 2>/dev/null || true
 
+    # Mark as created BEFORE making immutable
+    touch "${base}/.created"
+    ccdc_undo_log "baseline created at ${base}"
+
     # Make baseline immutable
     chattr +i -R "${base}" 2>/dev/null || true
 
-    touch "${base}/.created" 2>/dev/null || true
-    ccdc_undo_log "baseline created at ${base}"
     ccdc_log success "Baseline snapshot saved to ${base}"
 }
 
