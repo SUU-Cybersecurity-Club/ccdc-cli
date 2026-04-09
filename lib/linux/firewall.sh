@@ -22,23 +22,295 @@ ccdc_firewall_usage() {
     echo "  save                 Persist rules across reboot"
     echo "  allow-internet       Open outbound 80,443,53 for downloads"
     echo "  block-internet       Close outbound 80,443,53"
+    echo "  commit [-m msg]      Save numbered snapshot of current rules"
+    echo "  commit --log         Show commit history"
+    echo "  commit --diff [N]    Diff current rules vs commit N (or last)"
+    echo "  commit --undo        Rollback to previous commit"
+    echo "  commit --to <N>      Rollback to specific commit number"
     echo ""
     echo "Options:"
     echo "  --activate <sec>     Auto-revert rules after N seconds unless confirmed"
     echo "  --undo               Undo the last run of a command"
     echo ""
     echo "Backend: ${CCDC_FW_BACKEND:-not detected}"
+    echo "Version: $(_fw_version_read)"
     echo ""
     echo "Examples:"
     echo "  ccdc fw on                          Enable firewall"
     echo "  ccdc fw allow-only-in 22,80,443     Lock down to scored ports"
-    echo "  ccdc fw allow-only-in               Use scored_ports_tcp from config"
     echo "  ccdc fw allow-in 8080               Open port 8080/tcp inbound"
+    echo "  ccdc fw commit -m 'initial lockdown' Save current rules as commit"
+    echo "  ccdc fw commit --log                Show commit history"
+    echo "  ccdc fw commit --undo               Rollback one commit"
+    echo "  ccdc fw commit --to 2               Rollback to commit #2"
     echo "  ccdc fw block-ip 10.0.0.99          Block attacker IP"
-    echo "  ccdc fw status                      Show rules"
-    echo "  ccdc fw save                        Persist rules"
-    echo "  ccdc fw allow-internet              Temp open outbound for downloads"
-    echo "  ccdc fw allow-only-in --activate 30 Apply rules, auto-revert in 30s"
+    echo "  ccdc fw status                      Show rules + version"
+}
+
+# ══════════════════════════════════════════════
+# Version Counter
+# ══════════════════════════════════════════════
+
+_fw_version_read() {
+    local vfile="${CCDC_UNDO_DIR}/firewall/commits/version"
+    [[ -f "$vfile" ]] && cat "$vfile" || echo "0"
+}
+
+_fw_version_increment() {
+    local vfile="${CCDC_UNDO_DIR}/firewall/commits/version"
+    mkdir -p "$(dirname "$vfile")"
+    local v
+    v="$(_fw_version_read)"
+    echo "$((v + 1))" > "$vfile"
+    echo "$((v + 1))"
+}
+
+_fw_version_set() {
+    local n="$1"
+    local vfile="${CCDC_UNDO_DIR}/firewall/commits/version"
+    mkdir -p "$(dirname "$vfile")"
+    echo "$n" > "$vfile"
+}
+
+# ══════════════════════════════════════════════
+# Commit System
+# ══════════════════════════════════════════════
+
+_fw_commits_dir() {
+    echo "${CCDC_UNDO_DIR}/firewall/commits"
+}
+
+# Capture human-readable rules for diffing
+_fw_capture_rules_txt() {
+    case "$CCDC_FW_BACKEND" in
+        iptables)
+            echo "=== iptables ==="
+            iptables -L -n -v --line-numbers 2>/dev/null || true
+            ;;
+        nft)
+            echo "=== nftables ==="
+            nft list ruleset 2>/dev/null || true
+            ;;
+        ufw)
+            echo "=== ufw ==="
+            ufw status numbered 2>/dev/null || true
+            ;;
+        firewalld)
+            echo "=== firewalld ==="
+            firewall-cmd --list-all-zones 2>/dev/null || true
+            echo ""
+            echo "=== direct rules ==="
+            firewall-cmd --direct --get-all-rules 2>/dev/null || true
+            ;;
+    esac
+}
+
+# Save restorable dump for a commit
+_fw_capture_rules_dump() {
+    local dir="$1"
+    _fw_save_current_rules "$dir"
+}
+
+ccdc_firewall_commit() {
+    local msg=""
+    local action=""
+    local target=""
+
+    # Parse args
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --log)    action="log"; shift ;;
+            --diff)   action="diff"; shift; target="${1:-}"; [[ -n "$target" && "$target" != --* ]] && shift || true ;;
+            --undo)   action="undo"; shift ;;
+            --to)     action="to"; shift; target="${1:-}"; shift ;;
+            -m|--message) shift; msg="${1:-}"; shift ;;
+            *)        shift ;;
+        esac
+    done
+
+    local commits_dir
+    commits_dir="$(_fw_commits_dir)"
+    mkdir -p "$commits_dir"
+
+    case "$action" in
+        log)    _fw_commit_log ;;
+        diff)   _fw_commit_diff "$target" ;;
+        undo)   _fw_commit_undo ;;
+        to)     _fw_commit_to "$target" ;;
+        *)      _fw_commit_save "$msg" ;;
+    esac
+}
+
+_fw_commit_save() {
+    local msg="${1:-}"
+    local commits_dir
+    commits_dir="$(_fw_commits_dir)"
+
+    # Get current commit count (separate from version counter)
+    local last_commit=0
+    if [[ -f "${commits_dir}/latest" ]]; then
+        last_commit="$(cat "${commits_dir}/latest")"
+    fi
+    local new_commit=$((last_commit + 1))
+
+    local commit_dir="${commits_dir}/${new_commit}"
+    mkdir -p "$commit_dir"
+
+    # Save rules
+    _fw_capture_rules_txt > "${commit_dir}/rules.txt"
+    _fw_capture_rules_dump "$commit_dir"
+    date '+%Y-%m-%d %H:%M:%S' > "${commit_dir}/timestamp"
+    echo "$msg" > "${commit_dir}/message"
+
+    # Update latest pointer
+    echo "$new_commit" > "${commits_dir}/latest"
+
+    # Show diff from previous commit
+    ccdc_log success "Firewall commit #${new_commit}"
+    if [[ -n "$msg" ]]; then
+        ccdc_log info "Message: ${msg}"
+    fi
+
+    if [[ -f "${commits_dir}/${last_commit}/rules.txt" ]]; then
+        local changes
+        changes="$(diff "${commits_dir}/${last_commit}/rules.txt" "${commit_dir}/rules.txt" 2>/dev/null)" || true
+        if [[ -n "$changes" ]]; then
+            local added removed
+            added="$(echo "$changes" | grep -c '^>' 2>/dev/null)" || added=0
+            removed="$(echo "$changes" | grep -c '^<' 2>/dev/null)" || removed=0
+            ccdc_log info "${added} additions, ${removed} removals since commit #${last_commit}"
+            echo ""
+            echo "$changes" | sed 's/^> /  + /; s/^< /  - /; /^[0-9-]/d; /^---$/d'
+        else
+            ccdc_log info "No changes from commit #${last_commit}"
+        fi
+    else
+        ccdc_log info "(first commit -- no diff available)"
+    fi
+
+    ccdc_undo_log "firewall commit #${new_commit} -- ${msg}"
+}
+
+_fw_commit_log() {
+    local commits_dir
+    commits_dir="$(_fw_commits_dir)"
+    local latest=0
+    [[ -f "${commits_dir}/latest" ]] && latest="$(cat "${commits_dir}/latest")"
+
+    if [[ "$latest" -eq 0 ]]; then
+        ccdc_log info "No commits yet. Run: ccdc firewall commit"
+        return 0
+    fi
+
+    local current_version
+    current_version="$(_fw_version_read)"
+
+    echo ""
+    echo "Firewall commit history (version: v${current_version}):"
+    echo ""
+    for ((i=1; i<=latest; i++)); do
+        local dir="${commits_dir}/${i}"
+        [[ -d "$dir" ]] || continue
+        local ts msg marker=""
+        ts="$(cat "${dir}/timestamp" 2>/dev/null)" || ts="?"
+        msg="$(cat "${dir}/message" 2>/dev/null)" || msg=""
+        [[ "$i" -eq "$latest" ]] && marker=" *"
+        if [[ -n "$msg" ]]; then
+            echo "  #${i}${marker}  ${ts}  ${msg}"
+        else
+            echo "  #${i}${marker}  ${ts}"
+        fi
+    done
+    echo ""
+    echo "* = latest commit"
+}
+
+_fw_commit_diff() {
+    local target="${1:-}"
+    local commits_dir
+    commits_dir="$(_fw_commits_dir)"
+    local latest=0
+    [[ -f "${commits_dir}/latest" ]] && latest="$(cat "${commits_dir}/latest")"
+
+    if [[ "$latest" -eq 0 ]]; then
+        ccdc_log info "No commits to diff against"
+        return 0
+    fi
+
+    # Default: diff last commit vs current live rules
+    local compare_num="${target:-$latest}"
+    if [[ ! -d "${commits_dir}/${compare_num}" ]]; then
+        ccdc_log error "Commit #${compare_num} not found"
+        return 1
+    fi
+
+    ccdc_log info "Diff: commit #${compare_num} vs current rules"
+    echo ""
+
+    local current_rules
+    current_rules="$(_fw_capture_rules_txt)"
+    local committed_rules="${commits_dir}/${compare_num}/rules.txt"
+
+    local changes
+    changes="$(diff "$committed_rules" <(echo "$current_rules") 2>/dev/null)" || true
+    if [[ -n "$changes" ]]; then
+        echo "$changes" | sed 's/^> /  + /; s/^< /  - /; /^[0-9-]/d; /^---$/d'
+    else
+        ccdc_log success "No changes since commit #${compare_num}"
+    fi
+}
+
+_fw_commit_undo() {
+    local commits_dir
+    commits_dir="$(_fw_commits_dir)"
+    local latest=0
+    [[ -f "${commits_dir}/latest" ]] && latest="$(cat "${commits_dir}/latest")"
+
+    if [[ "$latest" -le 0 ]]; then
+        ccdc_log error "No commits to undo"
+        return 1
+    fi
+
+    local target=$((latest - 1))
+    if [[ "$target" -lt 1 ]]; then
+        ccdc_log warn "Already at first commit. Use 'ccdc firewall on --undo' to restore pre-firewall state."
+        return 1
+    fi
+
+    ccdc_log info "Rolling back from commit #${latest} to commit #${target}..."
+    _fw_restore_from_snapshot "${commits_dir}/${target}"
+
+    # Update latest pointer
+    echo "$target" > "${commits_dir}/latest"
+    ccdc_log success "Restored to commit #${target}"
+    ccdc_undo_log "firewall commit --undo -- rolled back to commit #${target}"
+}
+
+_fw_commit_to() {
+    local target="${1:-}"
+    if [[ -z "$target" ]]; then
+        ccdc_log error "Usage: ccdc firewall commit --to <N>"
+        return 1
+    fi
+
+    local commits_dir
+    commits_dir="$(_fw_commits_dir)"
+
+    if [[ ! -d "${commits_dir}/${target}" ]]; then
+        ccdc_log error "Commit #${target} not found"
+        return 1
+    fi
+
+    ccdc_log info "Rolling back to commit #${target}..."
+    _fw_restore_from_snapshot "${commits_dir}/${target}"
+
+    # Update latest pointer
+    echo "$target" > "${commits_dir}/latest"
+    ccdc_log success "Restored to commit #${target}"
+    local msg
+    msg="$(cat "${commits_dir}/${target}/message" 2>/dev/null)" || msg=""
+    [[ -n "$msg" ]] && ccdc_log info "Message: ${msg}"
+    ccdc_undo_log "firewall commit --to ${target} -- restored to commit #${target}"
 }
 
 # ══════════════════════════════════════════════
@@ -749,7 +1021,9 @@ ccdc_firewall_on() {
     _fw_save_current_rules "$snapshot_dir"
 
     _fw_dispatch on
-    ccdc_undo_log "firewall on -- enabled ${CCDC_FW_BACKEND}, snapshot at ${snapshot_dir}"
+    local v; v="$(_fw_version_increment)"
+    ccdc_undo_log "firewall on [v${v}] -- enabled ${CCDC_FW_BACKEND}, snapshot at ${snapshot_dir}"
+    ccdc_log info "[v${v}]"
 }
 
 ccdc_firewall_allow_in() {
@@ -770,7 +1044,8 @@ ccdc_firewall_allow_in() {
     _fw_save_current_rules "$snapshot_dir"
 
     _fw_dispatch allow_in "$port" "$proto"
-    ccdc_undo_log "firewall allow-in ${port}/${proto} -- snapshot at ${snapshot_dir}"
+    local v; v="$(_fw_version_increment)"
+    ccdc_undo_log "firewall allow-in [v${v}] ${port}/${proto} -- snapshot at ${snapshot_dir}"
 }
 
 ccdc_firewall_block_in() {
@@ -791,7 +1066,8 @@ ccdc_firewall_block_in() {
     _fw_save_current_rules "$snapshot_dir"
 
     _fw_dispatch block_in "$port" "$proto"
-    ccdc_undo_log "firewall block-in ${port}/${proto} -- snapshot at ${snapshot_dir}"
+    local v; v="$(_fw_version_increment)"
+    ccdc_undo_log "firewall block-in [v${v}] ${port}/${proto} -- snapshot at ${snapshot_dir}"
 }
 
 ccdc_firewall_allow_out() {
@@ -812,7 +1088,8 @@ ccdc_firewall_allow_out() {
     _fw_save_current_rules "$snapshot_dir"
 
     _fw_dispatch allow_out "$port" "$proto"
-    ccdc_undo_log "firewall allow-out ${port}/${proto} -- snapshot at ${snapshot_dir}"
+    local v; v="$(_fw_version_increment)"
+    ccdc_undo_log "firewall allow-out [v${v}] ${port}/${proto} -- snapshot at ${snapshot_dir}"
 }
 
 ccdc_firewall_block_out() {
@@ -833,7 +1110,8 @@ ccdc_firewall_block_out() {
     _fw_save_current_rules "$snapshot_dir"
 
     _fw_dispatch block_out "$port" "$proto"
-    ccdc_undo_log "firewall block-out ${port}/${proto} -- snapshot at ${snapshot_dir}"
+    local v; v="$(_fw_version_increment)"
+    ccdc_undo_log "firewall block-out [v${v}] ${port}/${proto} -- snapshot at ${snapshot_dir}"
 }
 
 ccdc_firewall_drop_all_in() {
@@ -847,7 +1125,8 @@ ccdc_firewall_drop_all_in() {
     _fw_save_current_rules "$snapshot_dir"
 
     _fw_dispatch drop_all_in
-    ccdc_undo_log "firewall drop-all-in -- snapshot at ${snapshot_dir}"
+    local v; v="$(_fw_version_increment)"
+    ccdc_undo_log "firewall drop-all-in [v${v}] -- snapshot at ${snapshot_dir}"
 }
 
 ccdc_firewall_drop_all_out() {
@@ -861,7 +1140,8 @@ ccdc_firewall_drop_all_out() {
     _fw_save_current_rules "$snapshot_dir"
 
     _fw_dispatch drop_all_out
-    ccdc_undo_log "firewall drop-all-out -- snapshot at ${snapshot_dir}"
+    local v; v="$(_fw_version_increment)"
+    ccdc_undo_log "firewall drop-all-out [v${v}] -- snapshot at ${snapshot_dir}"
 }
 
 ccdc_firewall_allow_only_in() {
@@ -886,7 +1166,8 @@ ccdc_firewall_allow_only_in() {
     [[ -n "${CCDC_SCORED_UDP:-}" ]] && ccdc_log info "UDP ports from config: ${CCDC_SCORED_UDP}"
 
     _fw_dispatch allow_only_in "$ports"
-    ccdc_undo_log "firewall allow-only-in ${ports} -- snapshot at ${snapshot_dir}"
+    local v; v="$(_fw_version_increment)"
+    ccdc_undo_log "firewall allow-only-in [v${v}] ${ports} -- snapshot at ${snapshot_dir}"
 
     # Handle --activate timer
     _fw_parse_activate "$@" && _fw_activate_timer "$snapshot_dir" "$_FW_ACTIVATE_TIMEOUT"
@@ -909,10 +1190,14 @@ ccdc_firewall_block_ip() {
     _fw_save_current_rules "$snapshot_dir"
 
     _fw_dispatch block_ip "$ip"
-    ccdc_undo_log "firewall block-ip ${ip} -- snapshot at ${snapshot_dir}"
+    local v; v="$(_fw_version_increment)"
+    ccdc_undo_log "firewall block-ip [v${v}] ${ip} -- snapshot at ${snapshot_dir}"
 }
 
 ccdc_firewall_status() {
+    local v; v="$(_fw_version_read)"
+    echo "Firewall version: v${v}  (backend: ${CCDC_FW_BACKEND:-unknown})"
+    echo ""
     _fw_dispatch status
 }
 
@@ -932,7 +1217,8 @@ ccdc_firewall_allow_internet() {
     _fw_save_current_rules "$snapshot_dir"
 
     _fw_dispatch allow_internet
-    ccdc_undo_log "firewall allow-internet -- snapshot at ${snapshot_dir}"
+    local v; v="$(_fw_version_increment)"
+    ccdc_undo_log "firewall allow-internet [v${v}] -- snapshot at ${snapshot_dir}"
 }
 
 ccdc_firewall_block_internet() {
@@ -946,7 +1232,8 @@ ccdc_firewall_block_internet() {
     _fw_save_current_rules "$snapshot_dir"
 
     _fw_dispatch block_internet
-    ccdc_undo_log "firewall block-internet -- snapshot at ${snapshot_dir}"
+    local v; v="$(_fw_version_increment)"
+    ccdc_undo_log "firewall block-internet [v${v}] -- snapshot at ${snapshot_dir}"
 }
 
 # ── Handler (main router) ──
@@ -1012,6 +1299,10 @@ ccdc_firewall_handler() {
         block-internet)
             [[ "${CCDC_HELP:-false}" == true ]] && { echo "Usage: ccdc firewall block-internet"; echo "Close outbound 80,443,53"; return 0; }
             ccdc_firewall_block_internet "$@"
+            ;;
+        commit)
+            [[ "${CCDC_HELP:-false}" == true ]] && { echo "Usage: ccdc firewall commit [-m msg] [--log] [--diff [N]] [--undo] [--to N]"; echo "Save numbered snapshot, view history, or rollback"; return 0; }
+            ccdc_firewall_commit "$@"
             ;;
         "")
             ccdc_firewall_usage

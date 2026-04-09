@@ -51,7 +51,7 @@ _ccdc_completions() {
             service)
                 subcmds="list stop disable enable cockpit" ;;
             firewall)
-                subcmds="on allow-in block-in allow-out block-out drop-all-in drop-all-out allow-only-in block-ip status save allow-internet block-internet" ;;
+                subcmds="on allow-in block-in allow-out block-out drop-all-in drop-all-out allow-only-in block-ip status save allow-internet block-internet commit" ;;
             harden)
                 subcmds="ssh ssh-remove smb cron banner revshell-check anon-login defender gpo updates mysql kerberos tls rdp spooler" ;;
             siem)
@@ -100,6 +100,12 @@ _ccdc_completions() {
         # Firewall --activate flag completion
         if [[ "$category" == "firewall" && "${words[2]}" =~ ^(allow-only-in|drop-all-in|drop-all-out)$ ]]; then
             COMPREPLY=($(compgen -W "--activate $global_flags" -- "$cur"))
+            return
+        fi
+
+        # Firewall commit flags
+        if [[ "$category" == "firewall" && "${words[2]}" == "commit" ]]; then
+            COMPREPLY=($(compgen -W "--log --diff --undo --to -m --message" -- "$cur"))
             return
         fi
 

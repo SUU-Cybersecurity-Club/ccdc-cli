@@ -13,7 +13,7 @@ $ccdcSubcommands = @{
     'backup'      = @('etc','binaries','web','grab','services','ip','ports','db','full','restore','ls')
     'discover'    = @('network','ports','users','processes','cron','services','firewall','integrity','all')
     'service'     = @('list','stop','disable','enable','cockpit')
-    'firewall'    = @('on','allow-in','block-in','allow-out','block-out','drop-all-in','drop-all-out','allow-only-in','block-ip','status','save','allow-internet','block-internet')
+    'firewall'    = @('on','allow-in','block-in','allow-out','block-out','drop-all-in','drop-all-out','allow-only-in','block-ip','status','save','allow-internet','block-internet','commit')
     'harden'      = @('ssh','ssh-remove','smb','cron','banner','revshell-check','anon-login','defender','gpo','updates','mysql','kerberos','tls','rdp','spooler')
     'siem'        = @('wazuh-server','wazuh-agent','splunk-server','splunk-agent','suricata','zeek','snoopy','auditd','sysmon')
     'install'     = @('malwarebytes','nmap','tmux','aide')
@@ -103,6 +103,14 @@ Register-ArgumentCompleter -CommandName 'ccdc','ccdc.ps1','.\ccdc.ps1' -Native -
     # firewall --activate flag for allow-only-in, drop-all-in, drop-all-out
     if ($category -eq 'firewall' -and $subcommand -match '^(allow-only-in|drop-all-in|drop-all-out)$') {
         @('--activate','--undo','--no-prompt') | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        }
+        return
+    }
+
+    # firewall commit flags
+    if ($category -eq 'firewall' -and $subcommand -eq 'commit') {
+        @('--log','--diff','--undo','--to','-m','--message') | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
         return
