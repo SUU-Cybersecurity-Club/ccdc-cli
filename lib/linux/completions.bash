@@ -53,7 +53,7 @@ _ccdc_completions() {
             firewall)
                 subcmds="on allow-in block-in allow-out block-out drop-all-in drop-all-out allow-only-in block-ip status save allow-internet block-internet" ;;
             harden)
-                subcmds="ssh smb cron banner revshell-check anon-login defender gpo updates mysql kerberos tls rdp spooler" ;;
+                subcmds="ssh ssh-remove smb cron banner revshell-check anon-login defender gpo updates mysql kerberos tls rdp spooler" ;;
             siem)
                 subcmds="wazuh-server wazuh-agent splunk-server splunk-agent suricata zeek snoopy auditd sysmon" ;;
             install)
@@ -94,6 +94,12 @@ _ccdc_completions() {
         # Firewall port protocol completion
         if [[ "$category" == "firewall" && "${words[2]}" =~ ^(allow-in|block-in|allow-out|block-out)$ && $cword -eq 4 ]]; then
             COMPREPLY=($(compgen -W "tcp udp" -- "$cur"))
+            return
+        fi
+
+        # Firewall --activate flag completion
+        if [[ "$category" == "firewall" && "${words[2]}" =~ ^(allow-only-in|drop-all-in|drop-all-out)$ ]]; then
+            COMPREPLY=($(compgen -W "--activate $global_flags" -- "$cur"))
             return
         fi
 

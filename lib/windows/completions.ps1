@@ -14,7 +14,7 @@ $ccdcSubcommands = @{
     'discover'    = @('network','ports','users','processes','cron','services','firewall','integrity','all')
     'service'     = @('list','stop','disable','enable','cockpit')
     'firewall'    = @('on','allow-in','block-in','allow-out','block-out','drop-all-in','drop-all-out','allow-only-in','block-ip','status','save','allow-internet','block-internet')
-    'harden'      = @('ssh','smb','cron','banner','revshell-check','anon-login','defender','gpo','updates','mysql','kerberos','tls','rdp','spooler')
+    'harden'      = @('ssh','ssh-remove','smb','cron','banner','revshell-check','anon-login','defender','gpo','updates','mysql','kerberos','tls','rdp','spooler')
     'siem'        = @('wazuh-server','wazuh-agent','splunk-server','splunk-agent','suricata','zeek','snoopy','auditd','sysmon')
     'install'     = @('malwarebytes','nmap','tmux','aide')
     'net'         = @('wget','curl')
@@ -95,6 +95,14 @@ Register-ArgumentCompleter -CommandName 'ccdc','ccdc.ps1','.\ccdc.ps1' -Native -
     # firewall port protocol
     if ($category -eq 'firewall' -and $subcommand -match '^(allow-in|block-in|allow-out|block-out)$' -and $tokenCount -le 5) {
         @('tcp','udp') | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        }
+        return
+    }
+
+    # firewall --activate flag for allow-only-in, drop-all-in, drop-all-out
+    if ($category -eq 'firewall' -and $subcommand -match '^(allow-only-in|drop-all-in|drop-all-out)$') {
+        @('--activate','--undo','--no-prompt') | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
         return

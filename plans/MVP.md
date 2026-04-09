@@ -232,9 +232,11 @@ The biggest time-saver. `allow-only-in` with scored ports is the single highest-
   - Undo: set default policy back to accept
 - [ ] `ccdc firewall drop-all-out` — set default policy to deny/drop outbound
   - Undo: set default policy back to accept
-- [ ] `ccdc firewall allow-only-in <ports>` — drop all inbound except listed ports
+- [ ] `ccdc firewall allow-only-in <ports>` — drop all inbound except listed ports AND drop all outbound
   - Reads `scored_ports_tcp` and `scored_ports_udp` from `.ccdc.conf` if no args given
   - Adds loopback + ESTABLISHED,RELATED automatically
+  - Sets default DROP policy on both INPUT and OUTPUT chains
+  - Blocks all outbound too — prevents reverse shells, C2 callbacks, and data exfil
   - This is the **key command** for competition
   - Undo: flush rules, restore from backup
 - [ ] `ccdc firewall block-ip <ip>` — block all traffic from IP
