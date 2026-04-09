@@ -451,7 +451,7 @@ _fw_dispatch() {
 _fw_iptables_on() {
     ccdc_log info "Enabling iptables..."
     # Disable competing backends
-    for svc in firewalld ufw nftables; do
+    for svc in firewalld ufw; do
         systemctl stop "$svc" 2>/dev/null || true
         systemctl mask "$svc" 2>/dev/null || true
     done
@@ -460,7 +460,9 @@ _fw_iptables_on() {
     iptables -A OUTPUT -o lo -j ACCEPT 2>/dev/null || true
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
     iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
-    ccdc_log success "iptables enabled with foundation rules"
+    # Pre-allow SSH so we don't lock out remote sessions
+    iptables -A INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null || true
+    ccdc_log success "iptables enabled with foundation rules (SSH pre-allowed)"
 }
 
 _fw_iptables_allow_in() {
@@ -620,7 +622,9 @@ _fw_nft_on() {
     nft add rule inet filter output oif lo accept 2>/dev/null || true
     nft add rule inet filter input ct state established,related accept 2>/dev/null || true
     nft add rule inet filter output ct state established,related accept 2>/dev/null || true
-    ccdc_log success "nftables enabled with foundation rules"
+    # Pre-allow SSH so we don't lock out remote sessions
+    nft add rule inet filter input tcp dport 22 accept 2>/dev/null || true
+    ccdc_log success "nftables enabled with foundation rules (SSH pre-allowed)"
 }
 
 _fw_nft_allow_in() {
@@ -761,8 +765,10 @@ _fw_ufw_on() {
     # Only disable firewalld (not nftables -- ufw uses nftables as backend on modern Ubuntu)
     systemctl stop firewalld 2>/dev/null || true
     systemctl mask firewalld 2>/dev/null || true
+    # Pre-allow SSH before enabling so we don't lock out remote sessions
+    ufw allow 22/tcp 2>/dev/null || true
     ufw --force enable
-    ccdc_log success "ufw enabled"
+    ccdc_log success "ufw enabled (SSH pre-allowed on port 22)"
 }
 
 _fw_ufw_allow_in() {
@@ -874,13 +880,16 @@ _fw_ufw_block_internet() {
 
 _fw_firewalld_on() {
     ccdc_log info "Enabling firewalld..."
-    for svc in ufw nftables; do
+    for svc in ufw; do
         systemctl stop "$svc" 2>/dev/null || true
         systemctl mask "$svc" 2>/dev/null || true
     done
     systemctl unmask firewalld 2>/dev/null || true
     systemctl enable --now firewalld
-    ccdc_log success "firewalld enabled"
+    # Pre-allow SSH so we don't lock out remote sessions
+    firewall-cmd --permanent --add-port=22/tcp 2>/dev/null || true
+    firewall-cmd --reload 2>/dev/null || true
+    ccdc_log success "firewalld enabled (SSH pre-allowed)"
 }
 
 _fw_firewalld_allow_in() {
