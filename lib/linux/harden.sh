@@ -195,7 +195,7 @@ ccdc_harden_cron() {
     local snapshot_dir
     snapshot_dir="$(ccdc_undo_snapshot_create harden cron)"
 
-    ccdc_log info "Backing up and disabling cron jobs..."
+    ccdc_log info "Backing up and selectively disabling cron jobs..."
 
     # Backup /etc/crontab
     cp /etc/crontab "${snapshot_dir}/crontab" 2>/dev/null || true
@@ -214,16 +214,75 @@ ccdc_harden_cron() {
         fi
     done < /etc/passwd
 
-    # Comment out /etc/crontab (non-comment lines)
-    sed -i 's/^\([^#].*\)/#CCDC# \1/' /etc/crontab
+    # Track what we disabled
+    local disabled_log="${snapshot_dir}/disabled.log"
+    touch "$disabled_log"
 
-    # Remove user crontabs
-    while IFS=: read -r username _; do
-        crontab -r -u "$username" 2>/dev/null || true
+    # /etc/crontab: only comment out user-added lines, preserve system run-parts
+    # System lines match: run-parts /etc/cron.(hourly|daily|weekly|monthly)
+    local system_pattern='run-parts\s+/etc/cron\.(hourly|daily|weekly|monthly)'
+    local commented=0
+    while IFS= read -r line; do
+        # Skip blank lines, comments, variable assignments (PATH=, SHELL=, MAILTO=)
+        if [[ -z "$line" || "$line" =~ ^[[:space:]]*# || "$line" =~ ^[[:space:]]*[A-Z_]+= ]]; then
+            echo "$line"
+            continue
+        fi
+        # Preserve system run-parts lines
+        if [[ "$line" =~ $system_pattern ]]; then
+            echo "$line"
+            continue
+        fi
+        # Comment out everything else (user-added entries)
+        echo "#CCDC# ${line}"
+        echo "/etc/crontab: ${line}" >> "$disabled_log"
+        ((commented++))
+    done < /etc/crontab > /etc/crontab.tmp && mv /etc/crontab.tmp /etc/crontab
+    ccdc_log info "/etc/crontab: commented out ${commented} user entries (preserved system run-parts)"
+
+    # /etc/cron.d/: disable non-system files
+    # System files are typically from packages (have package name or known names)
+    local system_crond_patterns='^(e2scrub|logrotate|man-db|popularity-contest|apt-compat|dpkg|sysstat|certbot|anacron|0hourly|raid-check|sysstat)$'
+    local crond_disabled=0
+    for f in /etc/cron.d/*; do
+        [[ -f "$f" ]] || continue
+        local fname
+        fname="$(basename "$f")"
+        # Skip .placeholder and known system files
+        if [[ "$fname" == ".placeholder" || "$fname" =~ $system_crond_patterns ]]; then
+            continue
+        fi
+        # Comment out non-system cron.d files
+        sed -i 's/^\([^#].*\)/#CCDC# \1/' "$f"
+        echo "/etc/cron.d/${fname}: commented out" >> "$disabled_log"
+        ((crond_disabled++))
+        ccdc_log info "Commented out /etc/cron.d/${fname}"
+    done
+    ccdc_log info "/etc/cron.d/: disabled ${crond_disabled} non-system files"
+
+    # User crontabs: remove for non-system users only (UID >= 1000, not root)
+    # Root crontab is preserved since it often has legitimate system maintenance
+    local users_disabled=0
+    while IFS=: read -r username _ uid _; do
+        # Skip system accounts and root
+        [[ "$uid" -lt 1000 ]] && continue
+        local cron_output
+        cron_output="$(crontab -l -u "$username" 2>/dev/null)" || continue
+        if [[ -n "$cron_output" ]]; then
+            crontab -r -u "$username" 2>/dev/null || true
+            echo "user crontab removed: ${username}" >> "$disabled_log"
+            ((users_disabled++))
+            ccdc_log info "Removed crontab for user: ${username}"
+        fi
     done < /etc/passwd
+    ccdc_log info "User crontabs: removed ${users_disabled} (preserved root and system accounts)"
 
-    ccdc_log success "Cron jobs disabled (/etc/crontab commented, user crontabs removed)"
-    ccdc_undo_log "harden cron -- disabled all cron, snapshot at ${snapshot_dir}"
+    # Print summary of what was disabled
+    ccdc_log info "=== Disabled cron summary ==="
+    cat "$disabled_log"
+
+    ccdc_log success "Cron hardening complete (selective -- system cron preserved)"
+    ccdc_undo_log "harden cron -- selectively disabled cron, snapshot at ${snapshot_dir}"
 }
 
 # ── Banner ──
