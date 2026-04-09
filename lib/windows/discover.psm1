@@ -349,15 +349,20 @@ function Invoke-CcdcDiscoverIntegrity {
     $outdir = Get-CcdcDiscoverOutDir
     $outfile = Join-Path $outdir "integrity.txt"
 
-    Write-CcdcLog "Running system file checker (this may take a while)..." -Level Info
+    Write-CcdcLog "Starting system file checker in background (takes 5-15 min)..." -Level Info
 
     $output = @()
     $output += "=== System File Checker ==="
-    try {
-        $output += (sfc /verifyonly 2>$null)
-    } catch {
-        $output += "(sfc failed - may need to run manually)"
-    }
+    $output += "sfc /verifyonly started as background job"
+    $output += "Check results later: Get-Content $outfile"
+
+    # Run sfc in background so it doesn't block
+    Start-Job -ScriptBlock {
+        param($outPath)
+        $result = sfc /verifyonly 2>&1
+        Add-Content -Path $outPath -Value "`r`n=== sfc Results ==="
+        Add-Content -Path $outPath -Value ($result -join "`r`n")
+    } -ArgumentList $outfile | Out-Null
 
     $text = $output -join "`r`n"
     Save-CcdcDiscoverOutput -OutFile $outfile -Content $text
