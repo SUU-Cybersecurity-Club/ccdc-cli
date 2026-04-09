@@ -802,14 +802,16 @@ _fw_ufw_drop_all_out() {
 
 _fw_ufw_allow_only_in() {
     local ports="$1"
-    # Reset ufw
-    ufw --force reset
-    ufw --force enable
+    # Delete all numbered rules (reverse order to avoid index shifting)
+    local rule_count
+    rule_count="$(ufw status numbered 2>/dev/null | grep -c '^\[' )" || rule_count=0
+    while [[ "$rule_count" -gt 0 ]]; do
+        echo "y" | ufw delete "$rule_count" 2>/dev/null || true
+        ((rule_count--))
+    done
+    # Set default policies
     ufw default deny incoming
     ufw default deny outgoing
-    # Allow loopback (ufw handles this mostly, but be explicit)
-    ufw allow in on lo
-    ufw allow out on lo
     # Scored TCP ports
     IFS=',' read -ra port_list <<< "$ports"
     for port in "${port_list[@]}"; do
