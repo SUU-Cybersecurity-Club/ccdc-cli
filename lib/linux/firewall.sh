@@ -758,10 +758,9 @@ _fw_nft_block_internet() {
 
 _fw_ufw_on() {
     ccdc_log info "Enabling ufw..."
-    for svc in firewalld nftables; do
-        systemctl stop "$svc" 2>/dev/null || true
-        systemctl mask "$svc" 2>/dev/null || true
-    done
+    # Only disable firewalld (not nftables -- ufw uses nftables as backend on modern Ubuntu)
+    systemctl stop firewalld 2>/dev/null || true
+    systemctl mask firewalld 2>/dev/null || true
     ufw --force enable
     ccdc_log success "ufw enabled"
 }
