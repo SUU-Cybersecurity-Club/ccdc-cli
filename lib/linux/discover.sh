@@ -353,21 +353,21 @@ ccdc_discover_all() {
 
     local failed=0
 
-    ccdc_discover_network || ((failed++))
+    ccdc_discover_network || failed=$((failed + 1))
     echo ""
-    ccdc_discover_ports || ((failed++))
+    ccdc_discover_ports || failed=$((failed + 1))
     echo ""
-    ccdc_discover_users || ((failed++))
+    ccdc_discover_users || failed=$((failed + 1))
     echo ""
-    ccdc_discover_processes || ((failed++))
+    ccdc_discover_processes || failed=$((failed + 1))
     echo ""
-    ccdc_discover_cron || ((failed++))
+    ccdc_discover_cron || failed=$((failed + 1))
     echo ""
-    ccdc_discover_services || ((failed++))
+    ccdc_discover_services || failed=$((failed + 1))
     echo ""
-    ccdc_discover_firewall || ((failed++))
+    ccdc_discover_firewall || failed=$((failed + 1))
     echo ""
-    ccdc_discover_integrity || ((failed++))
+    ccdc_discover_integrity || failed=$((failed + 1))
     echo ""
 
     local outdir="${CCDC_BACKUP_DIR}/discovery"

@@ -349,7 +349,7 @@ ccdc_harden_revshell_check() {
     suspicious_procs="$(ps -eaf 2>/dev/null | grep -iE "$proc_patterns" | grep -v grep)" || true
     if [[ -n "$suspicious_procs" ]]; then
         echo "$suspicious_procs"
-        ((found++))
+        found=$((found + 1))
     else
         echo "  (none found)"
     fi
@@ -369,7 +369,7 @@ ccdc_harden_revshell_check() {
     done < /etc/passwd
     if [[ -n "$cron_hits" ]]; then
         echo "$cron_hits"
-        ((found++))
+        found=$((found + 1))
     else
         echo "  (none found)"
     fi
@@ -388,7 +388,7 @@ ccdc_harden_revshell_check() {
     done
     if [[ -n "$temp_hits" ]]; then
         echo "$temp_hits"
-        ((found++))
+        found=$((found + 1))
     else
         echo "  (none found)"
     fi
@@ -400,7 +400,7 @@ ccdc_harden_revshell_check() {
     suid_hits="$(find /usr -perm -4000 -type f 2>/dev/null | grep -vE '(sudo|su|passwd|mount|umount|ping|chsh|chfn|newgrp|gpasswd|pkexec)' )" || true
     if [[ -n "$suid_hits" ]]; then
         echo "$suid_hits"
-        ((found++))
+        found=$((found + 1))
     else
         echo "  (none found)"
     fi
