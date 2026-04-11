@@ -236,7 +236,7 @@ ccdc_harden_cron() {
         # Comment out everything else (user-added entries)
         echo "#CCDC# ${line}"
         echo "/etc/crontab: ${line}" >> "$disabled_log"
-        ((commented++))
+        commented=$((commented + 1))
     done < /etc/crontab > /etc/crontab.tmp && mv /etc/crontab.tmp /etc/crontab
     ccdc_log info "/etc/crontab: commented out ${commented} user entries (preserved system run-parts)"
 
@@ -255,7 +255,7 @@ ccdc_harden_cron() {
         # Comment out non-system cron.d files
         sed -i 's/^\([^#].*\)/#CCDC# \1/' "$f"
         echo "/etc/cron.d/${fname}: commented out" >> "$disabled_log"
-        ((crond_disabled++))
+        crond_disabled=$((crond_disabled + 1))
         ccdc_log info "Commented out /etc/cron.d/${fname}"
     done
     ccdc_log info "/etc/cron.d/: disabled ${crond_disabled} non-system files"
@@ -271,7 +271,7 @@ ccdc_harden_cron() {
         if [[ -n "$cron_output" ]]; then
             crontab -r -u "$username" 2>/dev/null || true
             echo "user crontab removed: ${username}" >> "$disabled_log"
-            ((users_disabled++))
+            users_disabled=$((users_disabled + 1))
             ccdc_log info "Removed crontab for user: ${username}"
         fi
     done < /etc/passwd
