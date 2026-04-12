@@ -326,8 +326,8 @@ function Invoke-CcdcSiemSuricata {
             }
         }
         if ($npcapExe) {
-            Write-CcdcLog 'Installing Npcap (may prompt for driver install)...' -Level Info
-            Start-Process $npcapExe -ArgumentList '/S /winpcap_mode=yes' -Wait -ErrorAction SilentlyContinue
+            Write-CcdcLog 'Installing Npcap (follow the installer prompts)...' -Level Info
+            Start-Process $npcapExe -Wait -ErrorAction SilentlyContinue
             if (Test-Path $npcapPath) {
                 Write-CcdcLog 'Npcap installed' -Level Success
             } else {
