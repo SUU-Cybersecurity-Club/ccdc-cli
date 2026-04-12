@@ -225,11 +225,25 @@ _siem_wazuh_remove_repo() {
 }
 
 # ── wazuh-server ──
-# Prefers docker (single isolated container, no apt conflict with wazuh-agent
-# on the same host). Falls back to native package install if docker is absent.
+# Prefers the official wazuh-docker single-node compose stack
+# (manager + indexer + dashboard). Falls back to native wazuh-manager
+# package install if docker/compose is unavailable.
 
-CCDC_WAZUH_DOCKER_IMAGE="${CCDC_WAZUH_DOCKER_IMAGE:-wazuh/wazuh-manager:4.14.0}"
-CCDC_WAZUH_DOCKER_NAME="ccdc-wazuh-manager"
+CCDC_WAZUH_COMPOSE_DIR="${CCDC_WAZUH_COMPOSE_DIR:-/opt/wazuh-docker}"
+CCDC_WAZUH_VERSION="${CCDC_WAZUH_VERSION:-v4.14.4}"
+CCDC_WAZUH_COMPOSE_PROJECT="ccdc-wazuh"
+
+_siem_wazuh_compose_cmd() {
+    if docker compose version &>/dev/null; then
+        echo "docker compose"
+        return 0
+    fi
+    if command -v docker-compose &>/dev/null; then
+        echo "docker-compose"
+        return 0
+    fi
+    return 1
+}
 
 ccdc_siem_wazuh_server() {
     if [[ "${CCDC_UNDO:-false}" == true ]]; then
@@ -241,30 +255,41 @@ ccdc_siem_wazuh_server() {
         local install_method
         install_method="$(cat "${snapshot_dir}/install_method" 2>/dev/null)" || install_method="pkg"
 
-        if [[ "$install_method" == "docker" ]]; then
-            local container_existed
-            container_existed="$(cat "${snapshot_dir}/container_existed" 2>/dev/null)" || container_existed="no"
-            if [[ "$container_existed" == "no" ]]; then
-                docker stop "$CCDC_WAZUH_DOCKER_NAME" 2>/dev/null || true
-                docker rm "$CCDC_WAZUH_DOCKER_NAME" 2>/dev/null || true
-            else
-                ccdc_log info "Container ${CCDC_WAZUH_DOCKER_NAME} pre-existed; leaving in place"
-            fi
-        else
-            local was_installed
-            was_installed="$(cat "${snapshot_dir}/was_installed" 2>/dev/null)" || was_installed="no"
-            systemctl stop wazuh-manager 2>/dev/null || true
-            if [[ "$was_installed" == "no" ]]; then
-                systemctl disable wazuh-manager 2>/dev/null || true
-                ccdc_remove_pkg wazuh-manager 2>/dev/null || true
-                _siem_wazuh_remove_repo "$snapshot_dir"
-            fi
-            if [[ -f "${snapshot_dir}/ossec.conf" ]]; then
-                chattr -i "${snapshot_dir}/ossec.conf" 2>/dev/null || true
-                mkdir -p /var/ossec/etc
-                cp -a "${snapshot_dir}/ossec.conf" /var/ossec/etc/ossec.conf
-            fi
-        fi
+        case "$install_method" in
+            compose)
+                local clone_dir clone_existed sysctl_existed compose_cmd
+                clone_dir="$(cat "${snapshot_dir}/clone_dir" 2>/dev/null)" || clone_dir="$CCDC_WAZUH_COMPOSE_DIR"
+                clone_existed="$(cat "${snapshot_dir}/clone_existed" 2>/dev/null)" || clone_existed="no"
+                sysctl_existed="$(cat "${snapshot_dir}/sysctl_existed" 2>/dev/null)" || sysctl_existed="no"
+                compose_cmd="$(_siem_wazuh_compose_cmd 2>/dev/null)" || compose_cmd="docker compose"
+
+                if [[ -d "${clone_dir}/single-node" ]]; then
+                    ccdc_log info "Tearing down compose stack (down -v)..."
+                    (cd "${clone_dir}/single-node" && $compose_cmd -p "$CCDC_WAZUH_COMPOSE_PROJECT" down -v 2>/dev/null) || true
+                fi
+                if [[ "$clone_existed" == "no" && -d "$clone_dir" ]]; then
+                    rm -rf "$clone_dir"
+                fi
+                if [[ "$sysctl_existed" == "no" ]]; then
+                    rm -f /etc/sysctl.d/99-ccdc-wazuh.conf
+                fi
+                ;;
+            *)
+                local was_installed
+                was_installed="$(cat "${snapshot_dir}/was_installed" 2>/dev/null)" || was_installed="no"
+                systemctl stop wazuh-manager 2>/dev/null || true
+                if [[ "$was_installed" == "no" ]]; then
+                    systemctl disable wazuh-manager 2>/dev/null || true
+                    ccdc_remove_pkg wazuh-manager 2>/dev/null || true
+                    _siem_wazuh_remove_repo "$snapshot_dir"
+                fi
+                if [[ -f "${snapshot_dir}/ossec.conf" ]]; then
+                    chattr -i "${snapshot_dir}/ossec.conf" 2>/dev/null || true
+                    mkdir -p /var/ossec/etc
+                    cp -a "${snapshot_dir}/ossec.conf" /var/ossec/etc/ossec.conf
+                fi
+                ;;
+        esac
 
         ccdc_log success "siem wazuh-server restored (undo)"
         ccdc_undo_log "siem wazuh-server -- restored"
@@ -274,39 +299,70 @@ ccdc_siem_wazuh_server() {
     local snapshot_dir
     snapshot_dir="$(ccdc_undo_snapshot_create siem wazuh-server)"
 
-    # Layer 1: docker (preferred)
-    if command -v docker &>/dev/null && docker info &>/dev/null; then
-        echo "docker" > "${snapshot_dir}/install_method"
-
-        if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$CCDC_WAZUH_DOCKER_NAME"; then
-            echo "yes" > "${snapshot_dir}/container_existed"
-            ccdc_log info "Container ${CCDC_WAZUH_DOCKER_NAME} already exists; ensuring started"
-            docker start "$CCDC_WAZUH_DOCKER_NAME" 2>/dev/null || true
-        else
-            echo "no" > "${snapshot_dir}/container_existed"
-            ccdc_log info "Pulling ${CCDC_WAZUH_DOCKER_IMAGE}..."
-            if ! docker pull "$CCDC_WAZUH_DOCKER_IMAGE"; then
-                ccdc_log error "Failed to pull ${CCDC_WAZUH_DOCKER_IMAGE}"
+    # Layer 1: docker compose (preferred — official single-node stack)
+    local compose_cmd
+    if command -v docker &>/dev/null && docker info &>/dev/null && compose_cmd="$(_siem_wazuh_compose_cmd)"; then
+        if ! command -v git &>/dev/null; then
+            ccdc_install_pkg git || {
+                ccdc_log error "git required for wazuh-docker clone"
                 return 1
-            fi
-            ccdc_log info "Starting wazuh-manager container..."
-            if ! docker run -d \
-                    --name "$CCDC_WAZUH_DOCKER_NAME" \
-                    --restart unless-stopped \
-                    -p 1514:1514/udp \
-                    -p 1515:1515 \
-                    -p 55000:55000 \
-                    "$CCDC_WAZUH_DOCKER_IMAGE"; then
-                ccdc_log error "Failed to start wazuh-manager container"
+            }
+        fi
+
+        echo "compose" > "${snapshot_dir}/install_method"
+        echo "$CCDC_WAZUH_COMPOSE_DIR" > "${snapshot_dir}/clone_dir"
+
+        # vm.max_map_count is required by the bundled wazuh-indexer
+        local current_max_map
+        current_max_map="$(sysctl -n vm.max_map_count 2>/dev/null || echo 0)"
+        if [[ "$current_max_map" -ge 262144 ]]; then
+            echo "yes" > "${snapshot_dir}/sysctl_existed"
+        else
+            echo "no" > "${snapshot_dir}/sysctl_existed"
+            mkdir -p /etc/sysctl.d
+            echo "vm.max_map_count=262144" > /etc/sysctl.d/99-ccdc-wazuh.conf
+            sysctl -w vm.max_map_count=262144 >/dev/null 2>&1 || true
+        fi
+
+        if [[ -d "$CCDC_WAZUH_COMPOSE_DIR" ]]; then
+            echo "yes" > "${snapshot_dir}/clone_existed"
+            ccdc_log info "Reusing existing clone at ${CCDC_WAZUH_COMPOSE_DIR}"
+        else
+            echo "no" > "${snapshot_dir}/clone_existed"
+            ccdc_log info "Cloning wazuh-docker ${CCDC_WAZUH_VERSION}..."
+            if ! git clone --depth 1 -b "$CCDC_WAZUH_VERSION" \
+                    https://github.com/wazuh/wazuh-docker.git "$CCDC_WAZUH_COMPOSE_DIR"; then
+                ccdc_log error "git clone wazuh-docker failed"
                 return 1
             fi
         fi
 
-        sleep 3
-        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CCDC_WAZUH_DOCKER_NAME"; then
-            ccdc_log success "wazuh-manager container running on 1514/udp, 1515/tcp, 55000/tcp"
+        local single_node_dir="${CCDC_WAZUH_COMPOSE_DIR}/single-node"
+        if [[ ! -d "$single_node_dir" ]]; then
+            ccdc_log error "single-node directory missing in clone: ${single_node_dir}"
+            return 1
+        fi
+
+        cd "$single_node_dir" || return 1
+
+        if [[ ! -d config/wazuh_indexer_ssl_certs ]] || [[ -z "$(ls -A config/wazuh_indexer_ssl_certs 2>/dev/null)" ]]; then
+            ccdc_log info "Generating wazuh indexer TLS certificates..."
+            $compose_cmd -f generate-indexer-certs.yml run --rm generator || \
+                ccdc_log warn "Cert generator returned non-zero (often benign on re-runs)"
+        fi
+
+        ccdc_log info "Starting wazuh-docker stack via ${compose_cmd} (first run pulls ~5 GB)..."
+        if ! $compose_cmd -p "$CCDC_WAZUH_COMPOSE_PROJECT" up -d; then
+            ccdc_log error "docker compose up failed"
+            return 1
+        fi
+
+        sleep 5
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "${CCDC_WAZUH_COMPOSE_PROJECT}.*wazuh.manager"; then
+            ccdc_log success "wazuh-docker stack running (manager + indexer + dashboard)"
+            ccdc_log info "Dashboard: https://<host>  (admin / SecretPassword)"
         else
-            ccdc_log warn "Container started but not visible in docker ps"
+            ccdc_log warn "Compose up returned 0 but manager container not yet visible"
         fi
 
         ccdc_undo_log "siem wazuh-server -- snapshot at ${snapshot_dir}"
@@ -315,7 +371,7 @@ ccdc_siem_wazuh_server() {
     fi
 
     # Layer 2: native package fallback
-    ccdc_log info "docker not available; falling back to native wazuh-manager package"
+    ccdc_log info "docker compose not available; falling back to native wazuh-manager package"
     echo "pkg" > "${snapshot_dir}/install_method"
 
     if [[ -f /var/ossec/etc/ossec.conf ]] || systemctl list-unit-files 2>/dev/null | grep -q '^wazuh-manager'; then
