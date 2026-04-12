@@ -230,7 +230,7 @@ _siem_wazuh_remove_repo() {
 # package install if docker/compose is unavailable.
 
 CCDC_WAZUH_COMPOSE_DIR="${CCDC_WAZUH_COMPOSE_DIR:-/opt/wazuh-docker}"
-CCDC_WAZUH_VERSION="${CCDC_WAZUH_VERSION:-v4.13.1}"
+CCDC_WAZUH_VERSION="${CCDC_WAZUH_VERSION:-v4.14.4}"
 CCDC_WAZUH_COMPOSE_PROJECT="ccdc-wazuh"
 
 _siem_wazuh_compose_cmd() {
@@ -312,10 +312,8 @@ ccdc_siem_wazuh_server() {
         echo "compose" > "${snapshot_dir}/install_method"
         echo "$CCDC_WAZUH_COMPOSE_DIR" > "${snapshot_dir}/clone_dir"
 
-        # ip_forward + FORWARD chain required for docker container networking
-        sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
-        iptables -P FORWARD ACCEPT 2>/dev/null || true
-        # vm.max_map_count is required by the bundled wazuh-indexer
+        # ip_forward required for docker container networking;
+        # vm.max_map_count required by the bundled wazuh-indexer
         local current_max_map
         current_max_map="$(sysctl -n vm.max_map_count 2>/dev/null || echo 0)"
         if [[ "$current_max_map" -ge 262144 ]]; then
@@ -326,6 +324,8 @@ ccdc_siem_wazuh_server() {
             printf "net.ipv4.ip_forward=1\nvm.max_map_count=262144\n" > /etc/sysctl.d/99-ccdc-wazuh.conf
             sysctl -w vm.max_map_count=262144 >/dev/null 2>&1 || true
         fi
+        sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+        systemctl restart docker 2>/dev/null || true
 
         if [[ -d "$CCDC_WAZUH_COMPOSE_DIR" ]]; then
             echo "yes" > "${snapshot_dir}/clone_existed"
