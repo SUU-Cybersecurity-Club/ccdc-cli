@@ -975,45 +975,120 @@ ccdc_siem_wazuh_archives() {
             return 1
         }
 
-        # Restore ossec.conf
-        if [[ -f "${snapshot_dir}/ossec.conf" ]]; then
-            chattr -i "${snapshot_dir}/ossec.conf" 2>/dev/null || true
-            cp -a "${snapshot_dir}/ossec.conf" /var/ossec/etc/ossec.conf
+        local wazuh_mode
+        wazuh_mode="$(cat "${snapshot_dir}/wazuh_mode" 2>/dev/null)" || wazuh_mode="native"
+
+        if [[ "$wazuh_mode" == "docker" ]]; then
+            # Restore ossec.conf inside container
+            local mgr_container
+            mgr_container="$(docker ps --format '{{.Names}}' 2>/dev/null | grep wazuh.manager | head -1)"
+            if [[ -n "$mgr_container" && -f "${snapshot_dir}/ossec.conf" ]]; then
+                docker cp "${snapshot_dir}/ossec.conf" "${mgr_container}:/var/ossec/etc/ossec.conf" 2>/dev/null || true
+                docker restart "$mgr_container" 2>/dev/null || true
+            fi
+        else
+            # Restore ossec.conf on host
+            if [[ -f "${snapshot_dir}/ossec.conf" ]]; then
+                chattr -i "${snapshot_dir}/ossec.conf" 2>/dev/null || true
+                cp -a "${snapshot_dir}/ossec.conf" /var/ossec/etc/ossec.conf
+            fi
+            if systemctl is-active wazuh-manager &>/dev/null; then
+                systemctl restart wazuh-manager 2>/dev/null || true
+            fi
+            # Restore filebeat.yml
+            if [[ -f "${snapshot_dir}/filebeat.yml" ]]; then
+                chattr -i "${snapshot_dir}/filebeat.yml" 2>/dev/null || true
+                cp -a "${snapshot_dir}/filebeat.yml" /etc/filebeat/filebeat.yml
+                systemctl restart filebeat 2>/dev/null || true
+            fi
         fi
 
-        # Remove rotation/guard files
+        # Remove rotation/guard files (same for both modes)
         rm -f /etc/logrotate.d/wazuh-archives
         rm -f /etc/cron.hourly/wazuh-rotate
         rm -f /etc/cron.d/wazuh-disk-guard
         rm -f /etc/cron.hourly/wazuh-archives-cleanup
-
-        # Restart wazuh-manager
-        if systemctl is-active wazuh-manager &>/dev/null; then
-            systemctl restart wazuh-manager 2>/dev/null || true
-        elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q wazuh.manager; then
-            docker restart "$(docker ps --format '{{.Names}}' | grep wazuh.manager | head -1)" 2>/dev/null || true
-        fi
-
-        # Restore filebeat.yml
-        if [[ -f "${snapshot_dir}/filebeat.yml" ]]; then
-            chattr -i "${snapshot_dir}/filebeat.yml" 2>/dev/null || true
-            cp -a "${snapshot_dir}/filebeat.yml" /etc/filebeat/filebeat.yml
-            systemctl restart filebeat 2>/dev/null || true
-        fi
 
         ccdc_log success "siem wazuh-archives restored (undo)"
         ccdc_undo_log "siem wazuh-archives -- restored"
         return 0
     fi
 
-    # Check that wazuh-server is installed
-    if [[ ! -f /var/ossec/etc/ossec.conf ]]; then
-        ccdc_log error "ossec.conf not found. Install wazuh-server first: ccdc siem wazuh-server"
+    # Detect install method: native (ossec.conf on host) or docker compose
+    local wazuh_mode="none"
+    if [[ -f /var/ossec/etc/ossec.conf ]]; then
+        wazuh_mode="native"
+    elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q wazuh.manager; then
+        wazuh_mode="docker"
+    fi
+
+    if [[ "$wazuh_mode" == "none" ]]; then
+        ccdc_log error "wazuh-manager not found (no ossec.conf, no docker container). Install wazuh-server first."
         return 1
     fi
 
     local snapshot_dir
     snapshot_dir="$(ccdc_undo_snapshot_create siem wazuh-archives)"
+    echo "$wazuh_mode" > "${snapshot_dir}/wazuh_mode"
+
+    if [[ "$wazuh_mode" == "docker" ]]; then
+        # Docker compose path: edit ossec.conf inside the container
+        local mgr_container
+        mgr_container="$(docker ps --format '{{.Names}}' | grep wazuh.manager | head -1)"
+
+        # Backup ossec.conf from container
+        docker cp "${mgr_container}:/var/ossec/etc/ossec.conf" "${snapshot_dir}/ossec.conf" 2>/dev/null || true
+
+        # Enable logall_json inside the container
+        docker exec "$mgr_container" bash -c '
+            if grep -q "<logall_json>" /var/ossec/etc/ossec.conf; then
+                sed -i "s|<logall_json>no</logall_json>|<logall_json>yes</logall_json>|" /var/ossec/etc/ossec.conf
+            else
+                sed -i "/<global>/a\\    <logall_json>yes<\\/logall_json>" /var/ossec/etc/ossec.conf
+            fi
+        ' 2>/dev/null
+        ccdc_log info "Enabled logall_json in container ossec.conf"
+
+        # Restart manager container to apply
+        docker restart "$mgr_container" 2>/dev/null || true
+        ccdc_log info "Restarted wazuh-manager container"
+
+        # Host-side cron jobs still apply (guard disk from container log volume)
+        # 2. Logrotate config
+        cat > /etc/logrotate.d/wazuh-archives <<'EOF'
+/var/lib/docker/volumes/*wazuh*/_data/logs/archives/archives.json {
+    hourly
+    rotate 6
+    compress
+    delaycompress
+    copytruncate
+    maxsize 500M
+    missingok
+    notifempty
+}
+EOF
+        ccdc_log info "Wrote /etc/logrotate.d/wazuh-archives (docker volume path)"
+
+        # 3. Hourly logrotate trigger
+        cat > /etc/cron.hourly/wazuh-rotate <<'EOF'
+#!/bin/sh
+/usr/sbin/logrotate /etc/logrotate.d/wazuh-archives
+EOF
+        chmod +x /etc/cron.hourly/wazuh-rotate
+        ccdc_log info "Wrote /etc/cron.hourly/wazuh-rotate"
+
+        # 4. Disk guard cron
+        cat > /etc/cron.d/wazuh-disk-guard <<'EOF'
+*/5 * * * * root pct=$(df /var --output=pcent | tail -1 | tr -d ' %'); [ "$pct" -gt 85 ] && find /var/lib/docker/volumes/ -path '*archives*.gz' -print0 2>/dev/null | xargs -0 ls -1t 2>/dev/null | tail -3 | xargs -r rm -f
+EOF
+        ccdc_log info "Wrote /etc/cron.d/wazuh-disk-guard"
+
+        ccdc_undo_log "siem wazuh-archives -- snapshot at ${snapshot_dir}"
+        ccdc_log success "Done (docker mode). Undo: ccdc siem wazuh-archives --undo"
+        return 0
+    fi
+
+    # --- Native install path ---
 
     # Backup ossec.conf
     ccdc_backup_file /var/ossec/etc/ossec.conf "$snapshot_dir"
@@ -1060,15 +1135,8 @@ EOF
     ccdc_log info "Wrote /etc/cron.d/wazuh-disk-guard"
 
     # 5. Restart wazuh-manager
-    if systemctl is-active wazuh-manager &>/dev/null; then
-        systemctl restart wazuh-manager 2>/dev/null || true
-        ccdc_log info "Restarted wazuh-manager service"
-    elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q wazuh.manager; then
-        docker restart "$(docker ps --format '{{.Names}}' | grep wazuh.manager | head -1)" 2>/dev/null || true
-        ccdc_log info "Restarted wazuh-manager container"
-    else
-        ccdc_log warn "wazuh-manager not detected as running; skipping restart"
-    fi
+    systemctl restart wazuh-manager 2>/dev/null || true
+    ccdc_log info "Restarted wazuh-manager service"
 
     # 6. Enable filebeat archives input
     if [[ -f /etc/filebeat/filebeat.yml ]]; then
