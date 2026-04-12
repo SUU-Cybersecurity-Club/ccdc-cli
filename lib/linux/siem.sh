@@ -641,19 +641,60 @@ ccdc_siem_suricata() {
     [[ -f /etc/suricata/suricata.yaml ]] && ccdc_backup_file /etc/suricata/suricata.yaml "$snapshot_dir"
     [[ -f /var/ossec/etc/ossec.conf ]] && ccdc_backup_file /var/ossec/etc/ossec.conf "$snapshot_dir"
 
-    # Install
-    ccdc_install_pkg suricata || {
+    # Install -- try base repos first, then add OISF repo
+    local installed=false
+    ccdc_install_pkg suricata 2>/dev/null && installed=true
+    if [[ "$installed" == false ]]; then
+        case "${CCDC_PKG:-}" in
+            apt)
+                ccdc_log info "Adding Suricata PPA..."
+                add-apt-repository -y ppa:oisf/suricata-stable 2>/dev/null || true
+                apt-get update -qq 2>/dev/null || true
+                ccdc_install_pkg suricata && installed=true
+                ;;
+            dnf|yum)
+                ccdc_log info "Adding Suricata COPR repo..."
+                "${CCDC_PKG}" install -y epel-release 2>/dev/null || true
+                "${CCDC_PKG}" copr enable -y @oisf/suricata-7.0 2>/dev/null || true
+                ccdc_install_pkg suricata && installed=true
+                ;;
+        esac
+    fi
+    if [[ "$installed" == false ]]; then
         ccdc_log error "Failed to install suricata"
         return 1
-    }
+    fi
 
-    # Configure interface
-    local iface
+    # Detect interface and local network
+    local iface local_cidr
     iface="$(_siem_detect_iface)"
+    local_cidr="$(ip -o -4 addr show "$iface" 2>/dev/null | awk '{print $4; exit}')"
+    [[ -z "$local_cidr" ]] && local_cidr="10.0.0.0/8"
+
+    # Configure suricata.yaml
     if [[ -f /etc/suricata/suricata.yaml ]]; then
+        # Set af-packet interface
         sed -i "0,/- interface: .*/s//- interface: ${iface}/" /etc/suricata/suricata.yaml
         ccdc_log info "Suricata af-packet interface set to ${iface}"
+
+        # Set HOME_NET to local network
+        sed -i "s|HOME_NET:.*|HOME_NET: \"[${local_cidr}]\"|" /etc/suricata/suricata.yaml
+        ccdc_log info "Suricata HOME_NET set to ${local_cidr}"
     fi
+
+    # RHEL: also update /etc/sysconfig/suricata if it exists
+    if [[ -f /etc/sysconfig/suricata ]]; then
+        sed -i "s/eth0/${iface}/g" /etc/sysconfig/suricata
+        ccdc_log info "Updated /etc/sysconfig/suricata interface"
+    fi
+
+    # Download/update rules
+    if command -v suricata-update &>/dev/null; then
+        ccdc_log info "Updating Suricata rules..."
+        suricata-update 2>/dev/null || ccdc_log warn "suricata-update returned non-zero"
+    fi
+
+    systemctl enable --now suricata 2>/dev/null || true
 
     # Wazuh integration: append eve.json localfile to ossec.conf
     if [[ -f /var/ossec/etc/ossec.conf ]]; then
@@ -665,19 +706,22 @@ ccdc_siem_suricata() {
   <\/localfile>' /var/ossec/etc/ossec.conf
             ccdc_log info "Added eve.json localfile to ossec.conf"
         fi
-    fi
-
-    systemctl enable --now suricata 2>/dev/null || true
-
-    # Restart wazuh so new ossec.conf takes effect
-    if [[ -f /var/ossec/etc/ossec.conf ]]; then
+        # Restart wazuh so new ossec.conf takes effect
         systemctl restart wazuh-agent 2>/dev/null || systemctl restart wazuh-manager 2>/dev/null || true
     fi
 
+    # Validate config
+    if suricata -T -c /etc/suricata/suricata.yaml &>/dev/null; then
+        ccdc_log success "Suricata config validates OK"
+    else
+        ccdc_log warn "Suricata config validation failed -- check /etc/suricata/suricata.yaml"
+    fi
+
     if systemctl is-active suricata &>/dev/null; then
-        ccdc_log success "Suricata IDS running on interface ${iface}"
+        ccdc_log success "Suricata IDS running on interface ${iface} (HOME_NET=${local_cidr})"
     else
         ccdc_log warn "Suricata installed but service not yet active"
+        systemctl restart suricata 2>/dev/null || true
     fi
 
     ccdc_undo_log "siem suricata -- snapshot at ${snapshot_dir}"
@@ -736,6 +780,17 @@ ccdc_siem_zeek() {
             chattr -i "${snapshot_dir}/networks.cfg" 2>/dev/null || true
             cp -a "${snapshot_dir}/networks.cfg" "${zeek_etc}/networks.cfg"
         fi
+        if [[ -f "${snapshot_dir}/local.zeek" ]]; then
+            chattr -i "${snapshot_dir}/local.zeek" 2>/dev/null || true
+            cp -a "${snapshot_dir}/local.zeek" "${zeek_etc}/site/local.zeek"
+        fi
+
+        # Remove zeek entries from ossec.conf
+        if [[ -f /var/ossec/etc/ossec.conf ]]; then
+            sed -i '/zeek.*conn\.log/,/<\/localfile>/d' /var/ossec/etc/ossec.conf 2>/dev/null || true
+            sed -i '/zeek.*dns\.log/,/<\/localfile>/d' /var/ossec/etc/ossec.conf 2>/dev/null || true
+            systemctl restart wazuh-agent 2>/dev/null || systemctl restart wazuh-manager 2>/dev/null || true
+        fi
 
         if [[ "$was_installed" == "no" ]]; then
             ccdc_remove_pkg zeek 2>/dev/null || ccdc_remove_pkg zeek-lts 2>/dev/null || true
@@ -777,7 +832,14 @@ ccdc_siem_zeek() {
                 rm -f /tmp/zeek.key
                 ;;
             dnf|yum)
-                ccdc_log info "Zeek not in base repos. Try: dnf install zeek from EPEL or OBS."
+                ccdc_log info "Adding Zeek OBS repository..."
+                local os_ver
+                os_ver="$(rpm -E %{rhel} 2>/dev/null || echo '8')"
+                ccdc_download "https://download.opensuse.org/repositories/security:/zeek/CentOS_${os_ver}/security:zeek.repo" /etc/yum.repos.d/zeek.repo 2>/dev/null && \
+                    ccdc_install_pkg zeek && installed=true
+                if [[ "$installed" == false ]]; then
+                    ccdc_install_pkg zeek-lts 2>/dev/null && installed=true
+                fi
                 ;;
         esac
     fi
@@ -788,18 +850,23 @@ ccdc_siem_zeek() {
         return 0
     fi
 
-    local zeek_etc iface local_cidr
+    local zeek_etc zeek_logs iface local_cidr
     zeek_etc="$(_siem_zeek_etc)"
     echo "$zeek_etc" > "${snapshot_dir}/zeek_etc"
     iface="$(_siem_detect_iface)"
     local_cidr="$(ip -o -4 addr show "$iface" 2>/dev/null | awk '{print $4; exit}')"
     [[ -z "$local_cidr" ]] && local_cidr="10.0.0.0/8"
 
+    # Find zeek log directory
+    zeek_logs="/opt/zeek/logs"
+    [[ -d /var/log/zeek ]] && zeek_logs="/var/log/zeek"
+
     mkdir -p "$zeek_etc"
 
     # Backup existing configs
     [[ -f "${zeek_etc}/node.cfg" ]] && ccdc_backup_file "${zeek_etc}/node.cfg" "$snapshot_dir"
     [[ -f "${zeek_etc}/networks.cfg" ]] && ccdc_backup_file "${zeek_etc}/networks.cfg" "$snapshot_dir"
+    [[ -f "${zeek_etc}/site/local.zeek" ]] && ccdc_backup_file "${zeek_etc}/site/local.zeek" "$snapshot_dir"
 
     # Write node.cfg
     cat > "${zeek_etc}/node.cfg" <<EOF
@@ -816,14 +883,65 @@ ${local_cidr}  Local network
 EOF
     ccdc_log info "Wrote ${zeek_etc}/networks.cfg (${local_cidr})"
 
+    # Ensure local.zeek loads standard scripts + JSON logging
+    local site_dir="${zeek_etc}/site"
+    mkdir -p "$site_dir"
+    if [[ -f "${site_dir}/local.zeek" ]]; then
+        # Append JSON logging if not already set
+        if ! grep -q 'LogAscii::use_json' "${site_dir}/local.zeek" 2>/dev/null; then
+            cat >> "${site_dir}/local.zeek" <<'EOF'
+
+# ccdc-cli: enable JSON output for SIEM ingestion
+redef LogAscii::use_json = T;
+EOF
+            ccdc_log info "Enabled JSON logging in local.zeek"
+        fi
+    else
+        cat > "${site_dir}/local.zeek" <<'EOF'
+# ccdc-cli zeek config
+@load base/frameworks/logging
+@load base/protocols/conn
+@load base/protocols/dns
+@load base/protocols/http
+@load base/protocols/ssl
+@load base/protocols/ssh
+@load base/protocols/ftp
+@load base/protocols/smtp
+@load policy/misc/detect-traceroute
+@load policy/frameworks/notice/community-id
+
+# JSON output for SIEM ingestion
+redef LogAscii::use_json = T;
+EOF
+        ccdc_log info "Wrote ${site_dir}/local.zeek with JSON logging"
+    fi
+
     # Deploy zeek
     local zeekctl
     zeekctl="$(_siem_zeek_bin)"
     if [[ -n "$zeekctl" ]]; then
+        $zeekctl install 2>/dev/null || true
         $zeekctl deploy 2>/dev/null || ccdc_log warn "zeekctl deploy returned non-zero"
         ccdc_log success "Zeek deployed on interface ${iface}"
     else
         ccdc_log warn "zeekctl not found; configs written but zeek not started"
+    fi
+
+    # Wazuh integration: forward zeek JSON logs
+    if [[ -f /var/ossec/etc/ossec.conf ]]; then
+        if ! grep -q 'zeek' /var/ossec/etc/ossec.conf 2>/dev/null; then
+            sed -i "/<\/ossec_config>/i \\
+  <localfile>\\
+    <log_format>json<\\/log_format>\\
+    <location>${zeek_logs}/current/conn.log<\\/location>\\
+  <\\/localfile>\\
+  <localfile>\\
+    <log_format>json<\\/log_format>\\
+    <location>${zeek_logs}/current/dns.log<\\/location>\\
+  <\\/localfile>" /var/ossec/etc/ossec.conf
+            ccdc_log info "Added zeek conn.log + dns.log to ossec.conf"
+            systemctl restart wazuh-agent 2>/dev/null || systemctl restart wazuh-manager 2>/dev/null || true
+        fi
     fi
 
     ccdc_undo_log "siem zeek -- snapshot at ${snapshot_dir}"
