@@ -554,7 +554,7 @@ ccdc_siem_docker() {
         echo "no" > "${snapshot_dir}/was_enabled"
     fi
 
-    # Install docker
+    # Install docker -- try distro package, then Docker's official repo, then get.docker.com
     local installed=false
     case "${CCDC_PKG:-}" in
         apt)
@@ -563,11 +563,26 @@ ccdc_siem_docker() {
         dnf|yum)
             ccdc_install_pkg docker && installed=true
             if [[ "$installed" == false ]]; then
-                ccdc_log info "Trying moby-engine..."
-                ccdc_install_pkg moby-engine && installed=true
+                ccdc_install_pkg moby-engine 2>/dev/null && installed=true
+            fi
+            if [[ "$installed" == false ]]; then
+                ccdc_log info "Adding Docker CE repo..."
+                "${CCDC_PKG}" config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo 2>/dev/null || \
+                    "${CCDC_PKG}" config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo 2>/dev/null || true
+                ccdc_install_pkg docker-ce 2>/dev/null && installed=true
             fi
             ;;
     esac
+
+    # Last resort: get.docker.com convenience script
+    if [[ "$installed" == false ]]; then
+        ccdc_log info "Trying get.docker.com install script..."
+        if command -v curl &>/dev/null; then
+            curl -fsSL https://get.docker.com | sh 2>/dev/null && installed=true
+        elif command -v wget &>/dev/null; then
+            wget -qO- https://get.docker.com | sh 2>/dev/null && installed=true
+        fi
+    fi
 
     if [[ "$installed" == false ]]; then
         ccdc_log error "Failed to install docker"
@@ -694,7 +709,9 @@ ccdc_siem_suricata() {
         suricata-update 2>/dev/null || ccdc_log warn "suricata-update returned non-zero"
     fi
 
-    systemctl enable --now suricata 2>/dev/null || true
+    # Enable and start (restart after rule update to load new rules)
+    systemctl enable suricata 2>/dev/null || true
+    systemctl restart suricata 2>/dev/null || systemctl start suricata 2>/dev/null || true
 
     # Wazuh integration: append eve.json localfile to ossec.conf
     if [[ -f /var/ossec/etc/ossec.conf ]]; then
