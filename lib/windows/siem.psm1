@@ -311,12 +311,23 @@ function Invoke-CcdcSiemSuricata {
         Backup-CcdcFile -Source $ossecConf -DestDir $snapshotDir
     }
 
-    # Check Npcap (must be pre-installed on image -- remote silent install hangs)
+    # Check/install Npcap (required for packet capture)
     $npcapPath = 'C:\Program Files\Npcap'
     if (-not (Test-Path $npcapPath)) {
-        Write-CcdcLog 'Npcap not found. Pre-install Npcap on the image before competition.' -Level Error
-        Write-CcdcLog 'Suricata requires Npcap for packet capture. Skipping install.' -Level Error
-        return
+        $bundledNpcap = Join-Path $global:CCDC_DIR 'bin\windows\npcap-installer.exe'
+        if (Test-Path $bundledNpcap) {
+            Write-CcdcLog 'Installing bundled Npcap (may prompt for driver install)...' -Level Info
+            Start-Process $bundledNpcap -ArgumentList '/S /winpcap_mode=yes' -Wait -ErrorAction SilentlyContinue
+            if (Test-Path $npcapPath) {
+                Write-CcdcLog 'Npcap installed' -Level Success
+            } else {
+                Write-CcdcLog 'Npcap install may have failed. Continuing anyway.' -Level Warn
+            }
+        } else {
+            Write-CcdcLog 'Npcap not found and no bundled installer. Suricata needs Npcap for capture.' -Level Error
+            Write-CcdcLog 'Place npcap-installer.exe in bin\windows\ or pre-install Npcap.' -Level Error
+            return
+        }
     }
 
     # Install Suricata
