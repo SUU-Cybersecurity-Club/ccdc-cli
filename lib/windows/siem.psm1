@@ -371,10 +371,15 @@ function Invoke-CcdcSiemSuricata {
 
     Start-Sleep -Seconds 2
     $svc = Get-Service -Name Suricata -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -ne 'Running') {
+        Start-Service -Name Suricata -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        $svc = Get-Service -Name Suricata -ErrorAction SilentlyContinue
+    }
     if ($svc -and $svc.Status -eq 'Running') {
         Write-CcdcLog 'Suricata service running' -Level Success
     } else {
-        Write-CcdcLog 'Suricata installed but service not Running (may need manual start)' -Level Warn
+        Write-CcdcLog 'Suricata installed but service not Running' -Level Warn
     }
 
     Add-CcdcUndoLog "siem suricata -- snapshot at $snapshotDir"
