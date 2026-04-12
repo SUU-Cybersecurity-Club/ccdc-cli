@@ -491,10 +491,20 @@ ccdc_siem_wazuh_agent() {
     fi
 
     systemctl daemon-reload 2>/dev/null || true
+    systemctl daemon-reload 2>/dev/null || true
     systemctl enable --now wazuh-agent 2>/dev/null || true
+
+    # Wait for agent to connect (manager may still be initializing)
+    local retries=0
+    while [[ $retries -lt 5 ]] && ! systemctl is-active wazuh-agent &>/dev/null; do
+        sleep 2
+        retries=$((retries + 1))
+    done
 
     if systemctl is-active wazuh-agent &>/dev/null; then
         ccdc_log success "wazuh-agent active, reporting to ${CCDC_WAZUH_IP}"
+    elif [[ -f /var/ossec/etc/ossec.conf ]]; then
+        ccdc_log info "wazuh-agent installed and configured (service may need manager to be reachable)"
     else
         ccdc_log warn "wazuh-agent installed but service not yet active"
     fi
@@ -532,8 +542,11 @@ ccdc_siem_docker() {
             systemctl disable docker 2>/dev/null || true
         fi
         if [[ "$was_installed" == "no" ]]; then
-            ccdc_remove_pkg docker.io 2>/dev/null || ccdc_remove_pkg docker 2>/dev/null || true
-            ccdc_remove_pkg docker-compose-plugin 2>/dev/null || true
+            ccdc_remove_pkg docker-ce 2>/dev/null || ccdc_remove_pkg docker.io 2>/dev/null || ccdc_remove_pkg docker 2>/dev/null || true
+            # Only remove compose plugin if it's actually installed
+            if dpkg -l docker-compose-plugin &>/dev/null || rpm -q docker-compose-plugin &>/dev/null; then
+                ccdc_remove_pkg docker-compose-plugin 2>/dev/null || true
+            fi
         fi
         ccdc_log success "siem docker restored (undo)"
         ccdc_undo_log "siem docker -- restored"
@@ -554,25 +567,37 @@ ccdc_siem_docker() {
         echo "no" > "${snapshot_dir}/was_enabled"
     fi
 
-    # Install docker -- try distro package, then Docker's official repo, then get.docker.com
+    # Install docker -- skip if already present, then try distro pkg, Docker CE repo, get.docker.com
     local installed=false
-    case "${CCDC_PKG:-}" in
-        apt)
-            ccdc_install_pkg docker.io && installed=true
-            ;;
-        dnf|yum)
-            ccdc_install_pkg docker && installed=true
-            if [[ "$installed" == false ]]; then
-                ccdc_install_pkg moby-engine 2>/dev/null && installed=true
-            fi
-            if [[ "$installed" == false ]]; then
-                ccdc_log info "Adding Docker CE repo..."
-                "${CCDC_PKG}" config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo 2>/dev/null || \
-                    "${CCDC_PKG}" config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo 2>/dev/null || true
-                ccdc_install_pkg docker-ce 2>/dev/null && installed=true
-            fi
-            ;;
-    esac
+    if command -v docker &>/dev/null; then
+        ccdc_log info "Docker already installed"
+        installed=true
+    fi
+
+    if [[ "$installed" == false ]]; then
+        case "${CCDC_PKG:-}" in
+            apt)
+                ccdc_install_pkg docker.io && installed=true
+                ;;
+            dnf|yum)
+                # Check if docker-ce repo is already configured (from prior install)
+                if rpm -q docker-ce &>/dev/null 2>&1; then
+                    installed=true
+                else
+                    ccdc_install_pkg docker 2>/dev/null && installed=true
+                    if [[ "$installed" == false ]]; then
+                        ccdc_install_pkg moby-engine 2>/dev/null && installed=true
+                    fi
+                    if [[ "$installed" == false ]]; then
+                        ccdc_log info "Adding Docker CE repo..."
+                        "${CCDC_PKG}" config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo 2>/dev/null || \
+                            "${CCDC_PKG}" config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo 2>/dev/null || true
+                        ccdc_install_pkg docker-ce 2>/dev/null && installed=true
+                    fi
+                fi
+                ;;
+        esac
+    fi
 
     # Last resort: get.docker.com convenience script
     if [[ "$installed" == false ]]; then
@@ -589,8 +614,10 @@ ccdc_siem_docker() {
         return 1
     fi
 
-    # Best-effort compose plugin
-    ccdc_install_pkg docker-compose-plugin 2>/dev/null || true
+    # Best-effort compose plugin (only if docker-ce is installed, not docker.io)
+    if rpm -q docker-ce &>/dev/null 2>&1 || rpm -q docker-ce-cli &>/dev/null 2>&1; then
+        ccdc_install_pkg docker-compose-plugin 2>/dev/null || true
+    fi
 
     systemctl daemon-reload 2>/dev/null || true
     systemctl enable --now docker 2>/dev/null || true
