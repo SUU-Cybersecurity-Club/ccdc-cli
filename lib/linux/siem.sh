@@ -13,6 +13,10 @@ ccdc_siem_usage() {
     echo "  sysmon               Install Sysmon (Windows only)"
     echo "  wazuh-server         Install Wazuh manager (Linux)"
     echo "  wazuh-agent          Install Wazuh agent pointed at wazuh_server_ip"
+    echo "  suricata             Install Suricata IDS (Linux + Windows)"
+    echo "  zeek                 Install Zeek network monitor (Linux)"
+    echo "  docker               Install Docker engine (Linux)"
+    echo "  wazuh-archives       Enable full forensics logging (Linux)"
     echo ""
     echo "Options:"
     echo "  --undo               Undo the last run of a command"
@@ -21,6 +25,9 @@ ccdc_siem_usage() {
     echo "  ccdc siem snoopy"
     echo "  ccdc siem auditd"
     echo "  ccdc siem auditd --undo"
+    echo "  ccdc siem suricata"
+    echo "  ccdc siem docker && ccdc siem wazuh-server"
+    echo "  ccdc siem wazuh-archives"
     echo "  ccdc config set wazuh_server_ip 10.0.0.5 && ccdc siem wazuh-agent"
 }
 
@@ -247,6 +254,9 @@ _siem_wazuh_compose_cmd() {
 
 ccdc_siem_wazuh_server() {
     if [[ "${CCDC_UNDO:-false}" == true ]]; then
+        # Undo wazuh-archives first (auto-enabled during install)
+        ccdc_siem_wazuh_archives 2>/dev/null || true
+
         local snapshot_dir
         snapshot_dir="$(ccdc_undo_snapshot_latest siem wazuh-server)" || {
             ccdc_log error "No undo snapshot for siem wazuh-server"
@@ -370,6 +380,10 @@ ccdc_siem_wazuh_server() {
 
         ccdc_undo_log "siem wazuh-server -- snapshot at ${snapshot_dir}"
         ccdc_log success "Done. Undo: ccdc siem wazuh-server --undo"
+
+        # Auto-enable full forensics logging
+        ccdc_log info "Enabling wazuh-archives (full forensics logging)..."
+        ccdc_siem_wazuh_archives
         return 0
     fi
 
@@ -404,6 +418,10 @@ ccdc_siem_wazuh_server() {
 
     ccdc_undo_log "siem wazuh-server -- snapshot at ${snapshot_dir}"
     ccdc_log success "Done. Undo: ccdc siem wazuh-server --undo"
+
+    # Auto-enable full forensics logging
+    ccdc_log info "Enabling wazuh-archives (full forensics logging)..."
+    ccdc_siem_wazuh_archives
 }
 
 # ── wazuh-agent ──
@@ -485,6 +503,471 @@ ccdc_siem_wazuh_agent() {
     ccdc_log success "Done. Undo: ccdc siem wazuh-agent --undo"
 }
 
+# ── Shared: interface detection ──
+
+_siem_detect_iface() {
+    local iface
+    iface="$(ip route show default 2>/dev/null | awk '{print $5; exit}')"
+    if [[ -z "$iface" ]]; then
+        iface="eth0"
+        ccdc_log warn "Could not detect default interface, falling back to eth0"
+    fi
+    echo "$iface"
+}
+
+# ── docker ──
+
+ccdc_siem_docker() {
+    if [[ "${CCDC_UNDO:-false}" == true ]]; then
+        local snapshot_dir
+        snapshot_dir="$(ccdc_undo_snapshot_latest siem docker)" || {
+            ccdc_log error "No undo snapshot for siem docker"
+            return 1
+        }
+        local was_installed was_enabled
+        was_installed="$(cat "${snapshot_dir}/was_installed" 2>/dev/null)" || was_installed="no"
+        was_enabled="$(cat "${snapshot_dir}/was_enabled" 2>/dev/null)" || was_enabled="no"
+        systemctl stop docker 2>/dev/null || true
+        if [[ "$was_enabled" == "no" ]]; then
+            systemctl disable docker 2>/dev/null || true
+        fi
+        if [[ "$was_installed" == "no" ]]; then
+            ccdc_remove_pkg docker.io 2>/dev/null || ccdc_remove_pkg docker 2>/dev/null || true
+            ccdc_remove_pkg docker-compose-plugin 2>/dev/null || true
+        fi
+        ccdc_log success "siem docker restored (undo)"
+        ccdc_undo_log "siem docker -- restored"
+        return 0
+    fi
+
+    local snapshot_dir
+    snapshot_dir="$(ccdc_undo_snapshot_create siem docker)"
+
+    if command -v docker &>/dev/null; then
+        echo "yes" > "${snapshot_dir}/was_installed"
+    else
+        echo "no" > "${snapshot_dir}/was_installed"
+    fi
+    if systemctl is-enabled docker &>/dev/null; then
+        echo "yes" > "${snapshot_dir}/was_enabled"
+    else
+        echo "no" > "${snapshot_dir}/was_enabled"
+    fi
+
+    # Install docker
+    local installed=false
+    case "${CCDC_PKG:-}" in
+        apt)
+            ccdc_install_pkg docker.io && installed=true
+            ;;
+        dnf|yum)
+            ccdc_install_pkg docker && installed=true
+            if [[ "$installed" == false ]]; then
+                ccdc_log info "Trying moby-engine..."
+                ccdc_install_pkg moby-engine && installed=true
+            fi
+            ;;
+    esac
+
+    if [[ "$installed" == false ]]; then
+        ccdc_log error "Failed to install docker"
+        return 1
+    fi
+
+    # Best-effort compose plugin
+    ccdc_install_pkg docker-compose-plugin 2>/dev/null || true
+
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl enable --now docker 2>/dev/null || true
+
+    if docker info &>/dev/null; then
+        ccdc_log success "Docker engine running"
+    else
+        ccdc_log warn "Docker installed but 'docker info' failed"
+    fi
+
+    ccdc_undo_log "siem docker -- snapshot at ${snapshot_dir}"
+    ccdc_log success "Done. Undo: ccdc siem docker --undo"
+}
+
+# ── suricata ──
+
+ccdc_siem_suricata() {
+    if [[ "${CCDC_UNDO:-false}" == true ]]; then
+        local snapshot_dir
+        snapshot_dir="$(ccdc_undo_snapshot_latest siem suricata)" || {
+            ccdc_log error "No undo snapshot for siem suricata"
+            return 1
+        }
+        local was_installed
+        was_installed="$(cat "${snapshot_dir}/was_installed" 2>/dev/null)" || was_installed="no"
+
+        systemctl stop suricata 2>/dev/null || true
+        systemctl disable suricata 2>/dev/null || true
+
+        # Restore suricata.yaml
+        if [[ -f "${snapshot_dir}/suricata.yaml" ]]; then
+            chattr -i "${snapshot_dir}/suricata.yaml" 2>/dev/null || true
+            cp -a "${snapshot_dir}/suricata.yaml" /etc/suricata/suricata.yaml
+        fi
+
+        # Restore ossec.conf
+        if [[ -f "${snapshot_dir}/ossec.conf" ]]; then
+            chattr -i "${snapshot_dir}/ossec.conf" 2>/dev/null || true
+            cp -a "${snapshot_dir}/ossec.conf" /var/ossec/etc/ossec.conf
+            # Restart wazuh so restored config takes effect
+            systemctl restart wazuh-agent 2>/dev/null || systemctl restart wazuh-manager 2>/dev/null || true
+        fi
+
+        if [[ "$was_installed" == "no" ]]; then
+            ccdc_remove_pkg suricata 2>/dev/null || true
+        fi
+
+        ccdc_log success "siem suricata restored (undo)"
+        ccdc_undo_log "siem suricata -- restored"
+        return 0
+    fi
+
+    local snapshot_dir
+    snapshot_dir="$(ccdc_undo_snapshot_create siem suricata)"
+
+    if command -v suricata &>/dev/null; then
+        echo "yes" > "${snapshot_dir}/was_installed"
+    else
+        echo "no" > "${snapshot_dir}/was_installed"
+    fi
+
+    # Backup existing configs
+    [[ -f /etc/suricata/suricata.yaml ]] && ccdc_backup_file /etc/suricata/suricata.yaml "$snapshot_dir"
+    [[ -f /var/ossec/etc/ossec.conf ]] && ccdc_backup_file /var/ossec/etc/ossec.conf "$snapshot_dir"
+
+    # Install
+    ccdc_install_pkg suricata || {
+        ccdc_log error "Failed to install suricata"
+        return 1
+    }
+
+    # Configure interface
+    local iface
+    iface="$(_siem_detect_iface)"
+    if [[ -f /etc/suricata/suricata.yaml ]]; then
+        sed -i "0,/- interface: .*/s//- interface: ${iface}/" /etc/suricata/suricata.yaml
+        ccdc_log info "Suricata af-packet interface set to ${iface}"
+    fi
+
+    # Wazuh integration: append eve.json localfile to ossec.conf
+    if [[ -f /var/ossec/etc/ossec.conf ]]; then
+        if ! grep -q 'eve.json' /var/ossec/etc/ossec.conf 2>/dev/null; then
+            sed -i '/<\/ossec_config>/i \
+  <localfile>\
+    <log_format>json<\/log_format>\
+    <location>\/var\/log\/suricata\/eve.json<\/location>\
+  <\/localfile>' /var/ossec/etc/ossec.conf
+            ccdc_log info "Added eve.json localfile to ossec.conf"
+        fi
+    fi
+
+    systemctl enable --now suricata 2>/dev/null || true
+
+    # Restart wazuh so new ossec.conf takes effect
+    if [[ -f /var/ossec/etc/ossec.conf ]]; then
+        systemctl restart wazuh-agent 2>/dev/null || systemctl restart wazuh-manager 2>/dev/null || true
+    fi
+
+    if systemctl is-active suricata &>/dev/null; then
+        ccdc_log success "Suricata IDS running on interface ${iface}"
+    else
+        ccdc_log warn "Suricata installed but service not yet active"
+    fi
+
+    ccdc_undo_log "siem suricata -- snapshot at ${snapshot_dir}"
+    ccdc_log success "Done. Undo: ccdc siem suricata --undo"
+}
+
+# ── zeek ──
+
+_siem_zeek_etc() {
+    # Find zeek config directory
+    if [[ -d /opt/zeek/etc ]]; then
+        echo "/opt/zeek/etc"
+    elif [[ -d /etc/zeek ]]; then
+        echo "/etc/zeek"
+    elif [[ -d /usr/local/zeek/etc ]]; then
+        echo "/usr/local/zeek/etc"
+    else
+        echo "/opt/zeek/etc"
+    fi
+}
+
+_siem_zeek_bin() {
+    if command -v zeekctl &>/dev/null; then
+        echo "zeekctl"
+    elif [[ -x /opt/zeek/bin/zeekctl ]]; then
+        echo "/opt/zeek/bin/zeekctl"
+    elif [[ -x /usr/local/zeek/bin/zeekctl ]]; then
+        echo "/usr/local/zeek/bin/zeekctl"
+    else
+        echo ""
+    fi
+}
+
+ccdc_siem_zeek() {
+    if [[ "${CCDC_UNDO:-false}" == true ]]; then
+        local snapshot_dir
+        snapshot_dir="$(ccdc_undo_snapshot_latest siem zeek)" || {
+            ccdc_log error "No undo snapshot for siem zeek"
+            return 1
+        }
+        local was_installed zeek_etc
+        was_installed="$(cat "${snapshot_dir}/was_installed" 2>/dev/null)" || was_installed="no"
+        zeek_etc="$(cat "${snapshot_dir}/zeek_etc" 2>/dev/null)" || zeek_etc="$(_siem_zeek_etc)"
+
+        # Stop zeek
+        local zeekctl
+        zeekctl="$(_siem_zeek_bin)"
+        [[ -n "$zeekctl" ]] && $zeekctl stop 2>/dev/null || true
+
+        # Restore configs
+        if [[ -f "${snapshot_dir}/node.cfg" ]]; then
+            chattr -i "${snapshot_dir}/node.cfg" 2>/dev/null || true
+            cp -a "${snapshot_dir}/node.cfg" "${zeek_etc}/node.cfg"
+        fi
+        if [[ -f "${snapshot_dir}/networks.cfg" ]]; then
+            chattr -i "${snapshot_dir}/networks.cfg" 2>/dev/null || true
+            cp -a "${snapshot_dir}/networks.cfg" "${zeek_etc}/networks.cfg"
+        fi
+
+        if [[ "$was_installed" == "no" ]]; then
+            ccdc_remove_pkg zeek 2>/dev/null || ccdc_remove_pkg zeek-lts 2>/dev/null || true
+        fi
+
+        ccdc_log success "siem zeek restored (undo)"
+        ccdc_undo_log "siem zeek -- restored"
+        return 0
+    fi
+
+    local snapshot_dir
+    snapshot_dir="$(ccdc_undo_snapshot_create siem zeek)"
+
+    if command -v zeek &>/dev/null || command -v zeekctl &>/dev/null; then
+        echo "yes" > "${snapshot_dir}/was_installed"
+    else
+        echo "no" > "${snapshot_dir}/was_installed"
+    fi
+
+    # Install zeek (not in default repos on most distros)
+    local installed=false
+    ccdc_install_pkg zeek 2>/dev/null && installed=true
+    if [[ "$installed" == false ]]; then
+        ccdc_install_pkg zeek-lts 2>/dev/null && installed=true
+    fi
+    if [[ "$installed" == false ]]; then
+        # Try adding official Zeek repo
+        case "${CCDC_PKG:-}" in
+            apt)
+                ccdc_log info "Adding Zeek OBS repository..."
+                local codename
+                codename="$(lsb_release -cs 2>/dev/null || echo 'focal')"
+                ccdc_download "https://download.opensuse.org/repositories/security:/zeek/xUbuntu_$(lsb_release -rs 2>/dev/null || echo '22.04')/Release.key" /tmp/zeek.key 2>/dev/null && \
+                    gpg --dearmor < /tmp/zeek.key > /usr/share/keyrings/zeek.gpg 2>/dev/null && \
+                    echo "deb [signed-by=/usr/share/keyrings/zeek.gpg] https://download.opensuse.org/repositories/security:/zeek/xUbuntu_$(lsb_release -rs 2>/dev/null || echo '22.04')/ /" \
+                        > /etc/apt/sources.list.d/zeek.list && \
+                    apt-get update -qq 2>/dev/null && \
+                    ccdc_install_pkg zeek && installed=true
+                rm -f /tmp/zeek.key
+                ;;
+            dnf|yum)
+                ccdc_log info "Zeek not in base repos. Try: dnf install zeek from EPEL or OBS."
+                ;;
+        esac
+    fi
+
+    if [[ "$installed" == false ]]; then
+        ccdc_log error "Failed to install zeek. You may need to add the Zeek repository manually."
+        ccdc_undo_log "siem zeek -- install failed, snapshot at ${snapshot_dir}"
+        return 0
+    fi
+
+    local zeek_etc iface local_cidr
+    zeek_etc="$(_siem_zeek_etc)"
+    echo "$zeek_etc" > "${snapshot_dir}/zeek_etc"
+    iface="$(_siem_detect_iface)"
+    local_cidr="$(ip -o -4 addr show "$iface" 2>/dev/null | awk '{print $4; exit}')"
+    [[ -z "$local_cidr" ]] && local_cidr="10.0.0.0/8"
+
+    mkdir -p "$zeek_etc"
+
+    # Backup existing configs
+    [[ -f "${zeek_etc}/node.cfg" ]] && ccdc_backup_file "${zeek_etc}/node.cfg" "$snapshot_dir"
+    [[ -f "${zeek_etc}/networks.cfg" ]] && ccdc_backup_file "${zeek_etc}/networks.cfg" "$snapshot_dir"
+
+    # Write node.cfg
+    cat > "${zeek_etc}/node.cfg" <<EOF
+[zeek]
+type=standalone
+host=localhost
+interface=${iface}
+EOF
+    ccdc_log info "Wrote ${zeek_etc}/node.cfg (interface=${iface})"
+
+    # Write networks.cfg
+    cat > "${zeek_etc}/networks.cfg" <<EOF
+${local_cidr}  Local network
+EOF
+    ccdc_log info "Wrote ${zeek_etc}/networks.cfg (${local_cidr})"
+
+    # Deploy zeek
+    local zeekctl
+    zeekctl="$(_siem_zeek_bin)"
+    if [[ -n "$zeekctl" ]]; then
+        $zeekctl deploy 2>/dev/null || ccdc_log warn "zeekctl deploy returned non-zero"
+        ccdc_log success "Zeek deployed on interface ${iface}"
+    else
+        ccdc_log warn "zeekctl not found; configs written but zeek not started"
+    fi
+
+    ccdc_undo_log "siem zeek -- snapshot at ${snapshot_dir}"
+    ccdc_log success "Done. Undo: ccdc siem zeek --undo"
+}
+
+# ── wazuh-archives ──
+
+ccdc_siem_wazuh_archives() {
+    if [[ "${CCDC_UNDO:-false}" == true ]]; then
+        local snapshot_dir
+        snapshot_dir="$(ccdc_undo_snapshot_latest siem wazuh-archives)" || {
+            ccdc_log error "No undo snapshot for siem wazuh-archives"
+            return 1
+        }
+
+        # Restore ossec.conf
+        if [[ -f "${snapshot_dir}/ossec.conf" ]]; then
+            chattr -i "${snapshot_dir}/ossec.conf" 2>/dev/null || true
+            cp -a "${snapshot_dir}/ossec.conf" /var/ossec/etc/ossec.conf
+        fi
+
+        # Remove rotation/guard files
+        rm -f /etc/logrotate.d/wazuh-archives
+        rm -f /etc/cron.hourly/wazuh-rotate
+        rm -f /etc/cron.d/wazuh-disk-guard
+        rm -f /etc/cron.hourly/wazuh-archives-cleanup
+
+        # Restart wazuh-manager
+        if systemctl is-active wazuh-manager &>/dev/null; then
+            systemctl restart wazuh-manager 2>/dev/null || true
+        elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q wazuh.manager; then
+            docker restart "$(docker ps --format '{{.Names}}' | grep wazuh.manager | head -1)" 2>/dev/null || true
+        fi
+
+        # Restore filebeat.yml
+        if [[ -f "${snapshot_dir}/filebeat.yml" ]]; then
+            chattr -i "${snapshot_dir}/filebeat.yml" 2>/dev/null || true
+            cp -a "${snapshot_dir}/filebeat.yml" /etc/filebeat/filebeat.yml
+            systemctl restart filebeat 2>/dev/null || true
+        fi
+
+        ccdc_log success "siem wazuh-archives restored (undo)"
+        ccdc_undo_log "siem wazuh-archives -- restored"
+        return 0
+    fi
+
+    # Check that wazuh-server is installed
+    if [[ ! -f /var/ossec/etc/ossec.conf ]]; then
+        ccdc_log error "ossec.conf not found. Install wazuh-server first: ccdc siem wazuh-server"
+        return 1
+    fi
+
+    local snapshot_dir
+    snapshot_dir="$(ccdc_undo_snapshot_create siem wazuh-archives)"
+
+    # Backup ossec.conf
+    ccdc_backup_file /var/ossec/etc/ossec.conf "$snapshot_dir"
+
+    # Backup filebeat.yml if present
+    [[ -f /etc/filebeat/filebeat.yml ]] && ccdc_backup_file /etc/filebeat/filebeat.yml "$snapshot_dir"
+
+    # 1. Enable logall_json in ossec.conf
+    if grep -q '<logall_json>' /var/ossec/etc/ossec.conf 2>/dev/null; then
+        sed -i 's|<logall_json>no</logall_json>|<logall_json>yes</logall_json>|' /var/ossec/etc/ossec.conf
+    else
+        # Insert inside <global> block
+        sed -i '/<global>/a \    <logall_json>yes<\/logall_json>' /var/ossec/etc/ossec.conf
+    fi
+    ccdc_log info "Enabled logall_json in ossec.conf"
+
+    # 2. Logrotate config
+    cat > /etc/logrotate.d/wazuh-archives <<'EOF'
+/var/ossec/logs/archives/archives.json {
+    hourly
+    rotate 6
+    compress
+    delaycompress
+    copytruncate
+    maxsize 500M
+    missingok
+    notifempty
+}
+EOF
+    ccdc_log info "Wrote /etc/logrotate.d/wazuh-archives"
+
+    # 3. Hourly logrotate trigger
+    cat > /etc/cron.hourly/wazuh-rotate <<'EOF'
+#!/bin/sh
+/usr/sbin/logrotate /etc/logrotate.d/wazuh-archives
+EOF
+    chmod +x /etc/cron.hourly/wazuh-rotate
+    ccdc_log info "Wrote /etc/cron.hourly/wazuh-rotate"
+
+    # 4. Disk guard cron
+    cat > /etc/cron.d/wazuh-disk-guard <<'EOF'
+*/5 * * * * root pct=$(df /var --output=pcent | tail -1 | tr -d ' %'); [ "$pct" -gt 85 ] && ls -1t /var/ossec/logs/archives/*.gz 2>/dev/null | tail -3 | xargs -r rm -f
+EOF
+    ccdc_log info "Wrote /etc/cron.d/wazuh-disk-guard"
+
+    # 5. Restart wazuh-manager
+    if systemctl is-active wazuh-manager &>/dev/null; then
+        systemctl restart wazuh-manager 2>/dev/null || true
+        ccdc_log info "Restarted wazuh-manager service"
+    elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q wazuh.manager; then
+        docker restart "$(docker ps --format '{{.Names}}' | grep wazuh.manager | head -1)" 2>/dev/null || true
+        ccdc_log info "Restarted wazuh-manager container"
+    else
+        ccdc_log warn "wazuh-manager not detected as running; skipping restart"
+    fi
+
+    # 6. Enable filebeat archives input
+    if [[ -f /etc/filebeat/filebeat.yml ]]; then
+        if grep -q 'archives' /etc/filebeat/filebeat.yml 2>/dev/null; then
+            sed -i '/archives:/,/enabled:/{s/enabled: false/enabled: true/}' /etc/filebeat/filebeat.yml
+        fi
+        systemctl restart filebeat 2>/dev/null || true
+        ccdc_log info "Enabled archives input in filebeat.yml"
+    else
+        ccdc_log info "filebeat.yml not found; skipping filebeat archives config"
+    fi
+
+    # 7. Index cleanup cron
+    cat > /etc/cron.hourly/wazuh-archives-cleanup <<'EOF'
+#!/bin/sh
+# Delete wazuh-archives indices older than 6 hours
+sixh_ago=$(date -u -d '6 hours ago' +%Y.%m.%d 2>/dev/null) || exit 0
+curl -s -k -u admin:SecretPassword -XDELETE "https://localhost:9200/wazuh-archives-${sixh_ago}*" 2>/dev/null || true
+EOF
+    chmod +x /etc/cron.hourly/wazuh-archives-cleanup
+    ccdc_log info "Wrote /etc/cron.hourly/wazuh-archives-cleanup"
+
+    # Verify
+    if [[ -d /var/ossec/logs/archives ]]; then
+        ccdc_log success "Archives directory exists at /var/ossec/logs/archives/"
+    fi
+    if logrotate -d /etc/logrotate.d/wazuh-archives &>/dev/null; then
+        ccdc_log success "Logrotate config parses OK"
+    fi
+
+    ccdc_undo_log "siem wazuh-archives -- snapshot at ${snapshot_dir}"
+    ccdc_log success "Done. Undo: ccdc siem wazuh-archives --undo"
+}
+
 # ── Handler ──
 
 ccdc_siem_handler() {
@@ -516,6 +999,22 @@ ccdc_siem_handler() {
         wazuh-agent)
             [[ "${CCDC_HELP:-false}" == true ]] && { echo "Usage: ccdc siem wazuh-agent"; echo "Install Wazuh agent (uses wazuh_server_ip from config)"; return 0; }
             ccdc_siem_wazuh_agent "$@"
+            ;;
+        suricata)
+            [[ "${CCDC_HELP:-false}" == true ]] && { echo "Usage: ccdc siem suricata"; echo "Install Suricata IDS"; return 0; }
+            ccdc_siem_suricata "$@"
+            ;;
+        zeek)
+            [[ "${CCDC_HELP:-false}" == true ]] && { echo "Usage: ccdc siem zeek"; echo "Install Zeek network monitor (Linux only)"; return 0; }
+            ccdc_siem_zeek "$@"
+            ;;
+        docker)
+            [[ "${CCDC_HELP:-false}" == true ]] && { echo "Usage: ccdc siem docker"; echo "Install Docker engine"; return 0; }
+            ccdc_siem_docker "$@"
+            ;;
+        wazuh-archives)
+            [[ "${CCDC_HELP:-false}" == true ]] && { echo "Usage: ccdc siem wazuh-archives"; echo "Enable full forensics logging on Wazuh server"; return 0; }
+            ccdc_siem_wazuh_archives "$@"
             ;;
         "")
             ccdc_siem_usage

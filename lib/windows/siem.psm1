@@ -10,9 +10,13 @@ function Show-CcdcSiemUsage {
     Write-Host "Commands:"
     Write-Host "  sysmon               Install Sysmon with ccdc config"
     Write-Host "  wazuh-agent          Install Wazuh agent (uses wazuh_server_ip)"
+    Write-Host "  suricata             Install Suricata IDS"
     Write-Host "  wazuh-server         (Linux only - N/A on Windows)"
     Write-Host "  snoopy               (Linux only - N/A on Windows)"
     Write-Host "  auditd               (Linux only - N/A on Windows)"
+    Write-Host "  zeek                 (Linux only - N/A on Windows)"
+    Write-Host "  docker               (Linux only - N/A on Windows)"
+    Write-Host "  wazuh-archives       (Linux only - N/A on Windows)"
     Write-Host ""
     Write-Host "Options:"
     Write-Host "  --undo               Undo the last run of a command"
@@ -241,6 +245,146 @@ function Invoke-CcdcSiemWazuhAgent {
     Write-CcdcLog 'Done. Undo: ccdc siem wazuh-agent --undo' -Level Success
 }
 
+# ── Suricata ──
+
+function Get-CcdcSuricataMsi {
+    $bundledDir = Join-Path $global:CCDC_DIR 'bin\windows'
+    if (Test-Path $bundledDir) {
+        $bundled = Get-ChildItem -Path $bundledDir -Filter 'Suricata*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($bundled) { return $bundled.FullName }
+    }
+
+    $tempPath = Join-Path $env:TEMP 'Suricata.msi'
+    if (Test-Path $tempPath) { return $tempPath }
+
+    Write-CcdcLog 'Bundled Suricata MSI not found; downloading...' -Level Info
+    if (Invoke-CcdcDownload -Url 'https://www.openinfosecfoundation.org/download/suricata-7.0.7-1_64bit.msi' -Output $tempPath) {
+        return $tempPath
+    }
+    return $null
+}
+
+function Invoke-CcdcSiemSuricata {
+    param([string[]]$ExtraArgs)
+
+    $ossecConf = 'C:\Program Files (x86)\ossec-agent\ossec.conf'
+
+    if ($global:CCDC_UNDO) {
+        $snapshotDir = Get-CcdcUndoSnapshotLatest -Category 'siem' -Command 'suricata'
+        if (-not $snapshotDir) {
+            Write-CcdcLog 'No undo snapshot for siem suricata' -Level Error
+            return
+        }
+        $wasInstalled = Get-Content (Join-Path $snapshotDir 'was_installed') -ErrorAction SilentlyContinue
+
+        # Stop service
+        Stop-Service -Name Suricata -ErrorAction SilentlyContinue
+
+        # Restore ossec.conf
+        $backupConf = Join-Path $snapshotDir 'ossec.conf'
+        if (Test-Path $backupConf) {
+            Restore-CcdcFile -BackupPath $backupConf -OriginalPath $ossecConf | Out-Null
+            Restart-Service -Name WazuhSvc -ErrorAction SilentlyContinue
+        }
+
+        if ($wasInstalled -eq 'no') {
+            $msi = Get-CcdcSuricataMsi
+            if ($msi) {
+                Start-Process msiexec.exe -ArgumentList "/x `"$msi`" /qn" -Wait -ErrorAction SilentlyContinue
+            }
+            Write-CcdcLog 'Suricata uninstalled (undo)' -Level Success
+        }
+
+        Add-CcdcUndoLog 'siem suricata -- restored'
+        Write-CcdcLog 'siem suricata restored (undo)' -Level Success
+        return
+    }
+
+    $existing = Get-Service -Name Suricata -ErrorAction SilentlyContinue
+
+    $snapshotDir = New-CcdcUndoSnapshot -Category 'siem' -Command 'suricata'
+    if ($existing) {
+        'yes' | Out-File (Join-Path $snapshotDir 'was_installed')
+    } else {
+        'no' | Out-File (Join-Path $snapshotDir 'was_installed')
+    }
+
+    # Backup ossec.conf
+    if (Test-Path $ossecConf) {
+        Backup-CcdcFile -Source $ossecConf -DestDir $snapshotDir
+    }
+
+    # Check/install Npcap
+    $npcapPath = 'C:\Program Files\Npcap'
+    if (-not (Test-Path $npcapPath)) {
+        Write-CcdcLog 'Npcap not found; downloading...' -Level Info
+        $npcapInstaller = Join-Path $env:TEMP 'npcap-installer.exe'
+        $bundledNpcap = Join-Path $global:CCDC_DIR 'bin\windows\npcap-installer.exe'
+        if (Test-Path $bundledNpcap) {
+            $npcapInstaller = $bundledNpcap
+        } else {
+            if (-not (Invoke-CcdcDownload -Url 'https://npcap.com/dist/npcap-1.80.exe' -Output $npcapInstaller)) {
+                Write-CcdcLog 'Failed to download Npcap' -Level Error
+                return
+            }
+        }
+        Start-Process $npcapInstaller -ArgumentList '/S' -Wait -ErrorAction SilentlyContinue
+        Write-CcdcLog 'Npcap installed' -Level Info
+    }
+
+    # Install Suricata
+    if (-not $existing) {
+        $msi = Get-CcdcSuricataMsi
+        if (-not $msi) {
+            Write-CcdcLog 'Could not locate or download Suricata MSI' -Level Error
+            return
+        }
+        Write-CcdcLog 'Installing Suricata...' -Level Info
+        $proc = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn" -Wait -PassThru
+        if ($proc.ExitCode -ne 0) {
+            Write-CcdcLog "msiexec exited with code $($proc.ExitCode)" -Level Error
+            return
+        }
+    }
+
+    # Wazuh integration: add eve.json localfile to ossec.conf
+    if (Test-Path $ossecConf) {
+        $content = Get-Content $ossecConf -Raw
+        if ($content -notmatch 'eve\.json') {
+            $eveLine = '  <localfile>' + "`r`n" + '    <log_format>json</log_format>' + "`r`n" + '    <location>C:\Program Files\Suricata\log\eve.json</location>' + "`r`n" + '  </localfile>'
+            $newContent = $content -replace '</ossec_config>', "$eveLine`r`n</ossec_config>"
+            Set-Content -Path $ossecConf -Value $newContent -Encoding ASCII
+            Restart-Service -Name WazuhSvc -ErrorAction SilentlyContinue
+            Write-CcdcLog 'Added eve.json localfile to ossec.conf' -Level Info
+        }
+    }
+
+    Start-Sleep -Seconds 2
+    $svc = Get-Service -Name Suricata -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -eq 'Running') {
+        Write-CcdcLog 'Suricata service running' -Level Success
+    } else {
+        Write-CcdcLog 'Suricata installed but service not Running (may need manual start)' -Level Warn
+    }
+
+    Add-CcdcUndoLog "siem suricata -- snapshot at $snapshotDir"
+    Write-CcdcLog 'Done. Undo: ccdc siem suricata --undo' -Level Success
+}
+
+# ── Linux-only stubs ──
+
+function Invoke-CcdcSiemZeek {
+    Write-CcdcLog 'zeek is a Linux-only command. Run from a Linux host.' -Level Info
+}
+
+function Invoke-CcdcSiemDocker {
+    Write-CcdcLog 'docker is a Linux-only command. Run from a Linux host.' -Level Info
+}
+
+function Invoke-CcdcSiemWazuhArchives {
+    Write-CcdcLog 'wazuh-archives is a Linux-only command. Run from a Linux host.' -Level Info
+}
+
 # ── Handler ──
 
 function Invoke-CcdcSiem {
@@ -274,6 +418,22 @@ function Invoke-CcdcSiem {
         'wazuh-agent' {
             if ($global:CCDC_HELP) { Write-Host 'Usage: ccdc siem wazuh-agent'; Write-Host 'Install Wazuh agent (uses wazuh_server_ip from config)'; return }
             Invoke-CcdcSiemWazuhAgent -ExtraArgs $CmdArgs
+        }
+        'suricata' {
+            if ($global:CCDC_HELP) { Write-Host 'Usage: ccdc siem suricata'; Write-Host 'Install Suricata IDS'; return }
+            Invoke-CcdcSiemSuricata -ExtraArgs $CmdArgs
+        }
+        'zeek' {
+            if ($global:CCDC_HELP) { Write-Host 'Usage: ccdc siem zeek (Linux only)'; return }
+            Invoke-CcdcSiemZeek
+        }
+        'docker' {
+            if ($global:CCDC_HELP) { Write-Host 'Usage: ccdc siem docker (Linux only)'; return }
+            Invoke-CcdcSiemDocker
+        }
+        'wazuh-archives' {
+            if ($global:CCDC_HELP) { Write-Host 'Usage: ccdc siem wazuh-archives (Linux only)'; return }
+            Invoke-CcdcSiemWazuhArchives
         }
         '' { Show-CcdcSiemUsage }
         default {
