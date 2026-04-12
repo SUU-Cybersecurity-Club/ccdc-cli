@@ -314,18 +314,27 @@ function Invoke-CcdcSiemSuricata {
     # Check/install Npcap (required for packet capture)
     $npcapPath = 'C:\Program Files\Npcap'
     if (-not (Test-Path $npcapPath)) {
+        $npcapExe = $null
         $bundledNpcap = Join-Path $global:CCDC_DIR 'bin\windows\npcap-installer.exe'
         if (Test-Path $bundledNpcap) {
-            Write-CcdcLog 'Installing bundled Npcap (may prompt for driver install)...' -Level Info
-            Start-Process $bundledNpcap -ArgumentList '/S /winpcap_mode=yes' -Wait -ErrorAction SilentlyContinue
+            $npcapExe = $bundledNpcap
+        } else {
+            Write-CcdcLog 'Npcap not bundled; downloading from npcap.com...' -Level Info
+            $tempNpcap = Join-Path $env:TEMP 'npcap-installer.exe'
+            if (Invoke-CcdcDownload -Url 'https://npcap.com/dist/npcap-1.80.exe' -Output $tempNpcap) {
+                $npcapExe = $tempNpcap
+            }
+        }
+        if ($npcapExe) {
+            Write-CcdcLog 'Installing Npcap (may prompt for driver install)...' -Level Info
+            Start-Process $npcapExe -ArgumentList '/S /winpcap_mode=yes' -Wait -ErrorAction SilentlyContinue
             if (Test-Path $npcapPath) {
                 Write-CcdcLog 'Npcap installed' -Level Success
             } else {
                 Write-CcdcLog 'Npcap install may have failed. Continuing anyway.' -Level Warn
             }
         } else {
-            Write-CcdcLog 'Npcap not found and no bundled installer. Suricata needs Npcap for capture.' -Level Error
-            Write-CcdcLog 'Place npcap-installer.exe in bin\windows\ or pre-install Npcap.' -Level Error
+            Write-CcdcLog 'Could not obtain Npcap installer. Suricata needs Npcap for capture.' -Level Error
             return
         }
     }
