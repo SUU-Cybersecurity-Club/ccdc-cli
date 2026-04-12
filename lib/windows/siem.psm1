@@ -357,6 +357,50 @@ function Invoke-CcdcSiemSuricata {
         }
     }
 
+    # Configure suricata.yaml -- detect active interface and set it
+    $suricataYaml = $null
+    foreach ($candidate in @(
+        'C:\Program Files\Suricata\suricata.yaml',
+        'C:\Suricata\suricata.yaml',
+        'C:\Program Files\Suricata\etc\suricata.yaml'
+    )) {
+        if (Test-Path $candidate) { $suricataYaml = $candidate; break }
+    }
+
+    if ($suricataYaml) {
+        # Backup config
+        Backup-CcdcFile -Source $suricataYaml -DestDir $snapshotDir
+
+        # Detect active network interface (Npcap device name)
+        $iface = $null
+        try {
+            $adapter = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -notmatch 'Loopback' } | Select-Object -First 1
+            if ($adapter) {
+                # Npcap uses the device GUID format
+                $iface = '\Device\NPF_' + $adapter.InterfaceGuid
+                Write-CcdcLog "Detected interface: $($adapter.Name) ($iface)" -Level Info
+            }
+        } catch {}
+
+        if ($iface) {
+            $yamlContent = Get-Content $suricataYaml -Raw
+            # Replace the pcap interface line
+            $yamlContent = $yamlContent -replace '(?m)(- interface:\s*).*', "`$1$iface"
+            Set-Content -Path $suricataYaml -Value $yamlContent -Encoding ASCII
+            Write-CcdcLog 'Updated suricata.yaml with detected interface' -Level Success
+        } else {
+            Write-CcdcLog 'Could not detect network interface; edit suricata.yaml manually' -Level Warn
+        }
+
+        # Set log directory and eve.json output
+        $logDir = Split-Path $suricataYaml | Join-Path -ChildPath 'log'
+        if (-not (Test-Path $logDir)) {
+            New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+        }
+    } else {
+        Write-CcdcLog 'suricata.yaml not found; skipping config' -Level Warn
+    }
+
     # Wazuh integration: add eve.json localfile to ossec.conf
     if (Test-Path $ossecConf) {
         $content = Get-Content $ossecConf -Raw
@@ -371,13 +415,16 @@ function Invoke-CcdcSiemSuricata {
 
     Start-Sleep -Seconds 2
     $svc = Get-Service -Name Suricata -ErrorAction SilentlyContinue
-    if ($svc -and $svc.Status -ne 'Running') {
-        Start-Service -Name Suricata -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-        $svc = Get-Service -Name Suricata -ErrorAction SilentlyContinue
+    if ($svc) {
+        Set-Service -Name Suricata -StartupType Automatic -ErrorAction SilentlyContinue
+        if ($svc.Status -ne 'Running') {
+            Start-Service -Name Suricata -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            $svc = Get-Service -Name Suricata -ErrorAction SilentlyContinue
+        }
     }
     if ($svc -and $svc.Status -eq 'Running') {
-        Write-CcdcLog 'Suricata service running' -Level Success
+        Write-CcdcLog 'Suricata service running (auto-start enabled)' -Level Success
     } else {
         Write-CcdcLog 'Suricata installed but service not Running' -Level Warn
     }
