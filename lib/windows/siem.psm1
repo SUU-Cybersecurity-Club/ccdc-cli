@@ -257,7 +257,10 @@ function Get-CcdcSuricataMsi {
     $tempPath = Join-Path $env:TEMP 'Suricata.msi'
     if (Test-Path $tempPath) { return $tempPath }
 
-    Write-CcdcLog 'Bundled Suricata MSI not found. Place Suricata*.msi in bin\windows\' -Level Warn
+    Write-CcdcLog 'Bundled Suricata MSI not found; downloading from openinfosecfoundation.org...' -Level Info
+    if (Invoke-CcdcDownload -Url 'https://www.openinfosecfoundation.org/download/windows/Suricata-7.0.15-1-64bit.msi' -Output $tempPath) {
+        return $tempPath
+    }
     return $null
 }
 
