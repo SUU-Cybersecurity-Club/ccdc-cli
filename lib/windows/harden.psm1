@@ -342,8 +342,8 @@ function Invoke-CcdcHardenDefender {
         Set-MpPreference -SubmitSamplesConsent 1 -ErrorAction SilentlyContinue
         Set-MpPreference -PUAProtection 1 -ErrorAction SilentlyContinue
 
-        Write-CcdcLog "Updating Defender signatures..." -Level Info
-        Update-MpSignature -ErrorAction SilentlyContinue
+        Write-CcdcLog "Starting Defender signature update in background..." -Level Info
+        Start-Job -ScriptBlock { Update-MpSignature -ErrorAction SilentlyContinue } | Out-Null
     } catch {
         Write-CcdcLog "Some Defender settings could not be applied: $_" -Level Warn
     }
