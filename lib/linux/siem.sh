@@ -225,6 +225,11 @@ _siem_wazuh_remove_repo() {
 }
 
 # ── wazuh-server ──
+# Prefers docker (single isolated container, no apt conflict with wazuh-agent
+# on the same host). Falls back to native package install if docker is absent.
+
+CCDC_WAZUH_DOCKER_IMAGE="${CCDC_WAZUH_DOCKER_IMAGE:-wazuh/wazuh-manager:latest}"
+CCDC_WAZUH_DOCKER_NAME="ccdc-wazuh-manager"
 
 ccdc_siem_wazuh_server() {
     if [[ "${CCDC_UNDO:-false}" == true ]]; then
@@ -233,19 +238,34 @@ ccdc_siem_wazuh_server() {
             ccdc_log error "No undo snapshot for siem wazuh-server"
             return 1
         }
-        local was_installed
-        was_installed="$(cat "${snapshot_dir}/was_installed" 2>/dev/null)" || was_installed="no"
-        systemctl stop wazuh-manager 2>/dev/null || true
-        if [[ "$was_installed" == "no" ]]; then
-            systemctl disable wazuh-manager 2>/dev/null || true
-            ccdc_remove_pkg wazuh-manager 2>/dev/null || true
-            _siem_wazuh_remove_repo "$snapshot_dir"
+        local install_method
+        install_method="$(cat "${snapshot_dir}/install_method" 2>/dev/null)" || install_method="pkg"
+
+        if [[ "$install_method" == "docker" ]]; then
+            local container_existed
+            container_existed="$(cat "${snapshot_dir}/container_existed" 2>/dev/null)" || container_existed="no"
+            if [[ "$container_existed" == "no" ]]; then
+                docker stop "$CCDC_WAZUH_DOCKER_NAME" 2>/dev/null || true
+                docker rm "$CCDC_WAZUH_DOCKER_NAME" 2>/dev/null || true
+            else
+                ccdc_log info "Container ${CCDC_WAZUH_DOCKER_NAME} pre-existed; leaving in place"
+            fi
+        else
+            local was_installed
+            was_installed="$(cat "${snapshot_dir}/was_installed" 2>/dev/null)" || was_installed="no"
+            systemctl stop wazuh-manager 2>/dev/null || true
+            if [[ "$was_installed" == "no" ]]; then
+                systemctl disable wazuh-manager 2>/dev/null || true
+                ccdc_remove_pkg wazuh-manager 2>/dev/null || true
+                _siem_wazuh_remove_repo "$snapshot_dir"
+            fi
+            if [[ -f "${snapshot_dir}/ossec.conf" ]]; then
+                chattr -i "${snapshot_dir}/ossec.conf" 2>/dev/null || true
+                mkdir -p /var/ossec/etc
+                cp -a "${snapshot_dir}/ossec.conf" /var/ossec/etc/ossec.conf
+            fi
         fi
-        if [[ -f "${snapshot_dir}/ossec.conf" ]]; then
-            chattr -i "${snapshot_dir}/ossec.conf" 2>/dev/null || true
-            mkdir -p /var/ossec/etc
-            cp -a "${snapshot_dir}/ossec.conf" /var/ossec/etc/ossec.conf
-        fi
+
         ccdc_log success "siem wazuh-server restored (undo)"
         ccdc_undo_log "siem wazuh-server -- restored"
         return 0
@@ -253,6 +273,50 @@ ccdc_siem_wazuh_server() {
 
     local snapshot_dir
     snapshot_dir="$(ccdc_undo_snapshot_create siem wazuh-server)"
+
+    # Layer 1: docker (preferred)
+    if command -v docker &>/dev/null && docker info &>/dev/null; then
+        echo "docker" > "${snapshot_dir}/install_method"
+
+        if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$CCDC_WAZUH_DOCKER_NAME"; then
+            echo "yes" > "${snapshot_dir}/container_existed"
+            ccdc_log info "Container ${CCDC_WAZUH_DOCKER_NAME} already exists; ensuring started"
+            docker start "$CCDC_WAZUH_DOCKER_NAME" 2>/dev/null || true
+        else
+            echo "no" > "${snapshot_dir}/container_existed"
+            ccdc_log info "Pulling ${CCDC_WAZUH_DOCKER_IMAGE}..."
+            if ! docker pull "$CCDC_WAZUH_DOCKER_IMAGE"; then
+                ccdc_log error "Failed to pull ${CCDC_WAZUH_DOCKER_IMAGE}"
+                return 1
+            fi
+            ccdc_log info "Starting wazuh-manager container..."
+            if ! docker run -d \
+                    --name "$CCDC_WAZUH_DOCKER_NAME" \
+                    --restart unless-stopped \
+                    -p 1514:1514/udp \
+                    -p 1515:1515 \
+                    -p 55000:55000 \
+                    "$CCDC_WAZUH_DOCKER_IMAGE"; then
+                ccdc_log error "Failed to start wazuh-manager container"
+                return 1
+            fi
+        fi
+
+        sleep 3
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CCDC_WAZUH_DOCKER_NAME"; then
+            ccdc_log success "wazuh-manager container running on 1514/udp, 1515/tcp, 55000/tcp"
+        else
+            ccdc_log warn "Container started but not visible in docker ps"
+        fi
+
+        ccdc_undo_log "siem wazuh-server -- snapshot at ${snapshot_dir}"
+        ccdc_log success "Done. Undo: ccdc siem wazuh-server --undo"
+        return 0
+    fi
+
+    # Layer 2: native package fallback
+    ccdc_log info "docker not available; falling back to native wazuh-manager package"
+    echo "pkg" > "${snapshot_dir}/install_method"
 
     if [[ -f /var/ossec/etc/ossec.conf ]] || systemctl list-unit-files 2>/dev/null | grep -q '^wazuh-manager'; then
         echo "yes" > "${snapshot_dir}/was_installed"
