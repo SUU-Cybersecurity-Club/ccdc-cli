@@ -620,19 +620,21 @@ ccdc_siem_docker() {
     fi
 
     systemctl daemon-reload 2>/dev/null || true
-    systemctl enable --now docker 2>/dev/null || true
+    systemctl enable docker 2>/dev/null || true
+    systemctl start docker 2>/dev/null || true
 
-    # Wait for docker daemon to be ready
+    # Wait for docker daemon to be ready (can take a few seconds after fresh install)
     local retries=0
-    while [[ $retries -lt 5 ]] && ! docker info &>/dev/null; do
-        sleep 2
+    while [[ $retries -lt 10 ]] && ! docker info &>/dev/null; do
+        sleep 3
+        systemctl start docker 2>/dev/null || true
         retries=$((retries + 1))
     done
 
     if docker info &>/dev/null; then
         ccdc_log success "Docker engine running"
     else
-        ccdc_log warn "Docker installed but 'docker info' failed"
+        ccdc_log warn "Docker installed but 'docker info' failed (may need reboot)"
     fi
 
     ccdc_undo_log "siem docker -- snapshot at ${snapshot_dir}"
