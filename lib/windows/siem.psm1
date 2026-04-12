@@ -68,31 +68,38 @@ function Invoke-CcdcSiemSysmon {
         return
     }
 
-    $snapshotDir = New-CcdcUndoSnapshot -Category "siem" -Command "sysmon"
-    $existing = Get-Service -Name Sysmon64 -ErrorAction SilentlyContinue
-    if (-not $existing) {
-        $existing = Get-Service -Name Sysmon -ErrorAction SilentlyContinue
-    }
-    if ($existing) {
-        "yes" | Out-File (Join-Path $snapshotDir "was_installed")
-    } else {
-        "no" | Out-File (Join-Path $snapshotDir "was_installed")
-    }
-
     $sysmonExe = Get-CcdcSysmonExe
     if (-not $sysmonExe) {
         Write-CcdcLog "Could not locate or download Sysmon64.exe" -Level Error
         return
     }
 
-    try {
-        if ($existing) {
-            Write-CcdcLog "Sysmon already installed; updating config..." -Level Info
+    $existing = Get-Service -Name Sysmon64 -ErrorAction SilentlyContinue
+    if (-not $existing) {
+        $existing = Get-Service -Name Sysmon -ErrorAction SilentlyContinue
+    }
+
+    # Config-update path: do NOT create a new snapshot, so undo still walks
+    # back to the original install state.
+    if ($existing) {
+        Write-CcdcLog "Sysmon already installed; updating config (no undo snapshot)" -Level Info
+        try {
             & $sysmonExe -c $configPath 2>&1 | Out-Null
-        } else {
-            Write-CcdcLog "Installing Sysmon with ccdc config..." -Level Info
-            & $sysmonExe -accepteula -i $configPath 2>&1 | Out-Null
+        } catch {
+            Write-CcdcLog "Sysmon config update failed: $_" -Level Error
+            return
         }
+        Write-CcdcLog "Sysmon config updated" -Level Success
+        return
+    }
+
+    # Fresh install path
+    $snapshotDir = New-CcdcUndoSnapshot -Category "siem" -Command "sysmon"
+    "no" | Out-File (Join-Path $snapshotDir "was_installed")
+
+    Write-CcdcLog "Installing Sysmon with ccdc config..." -Level Info
+    try {
+        & $sysmonExe -accepteula -i $configPath 2>&1 | Out-Null
     } catch {
         Write-CcdcLog "Sysmon install failed: $_" -Level Error
         return
