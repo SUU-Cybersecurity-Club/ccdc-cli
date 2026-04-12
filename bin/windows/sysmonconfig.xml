@@ -1,0 +1,50 @@
+<Sysmon schemaversion="4.82">
+  <HashAlgorithms>SHA256</HashAlgorithms>
+  <CheckRevocation/>
+  <EventFiltering>
+
+    <RuleGroup name="" groupRelation="or">
+      <ProcessCreate onmatch="exclude">
+        <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <RuleGroup name="" groupRelation="or">
+      <NetworkConnect onmatch="exclude">
+        <Image condition="image">svchost.exe</Image>
+      </NetworkConnect>
+    </RuleGroup>
+
+    <RuleGroup name="" groupRelation="or">
+      <ImageLoad onmatch="include">
+        <ImageLoaded condition="end with">.dll</ImageLoaded>
+      </ImageLoad>
+    </RuleGroup>
+
+    <RuleGroup name="" groupRelation="or">
+      <DriverLoad onmatch="exclude"/>
+    </RuleGroup>
+
+    <RuleGroup name="" groupRelation="or">
+      <ProcessAccess onmatch="include">
+        <TargetImage condition="image">lsass.exe</TargetImage>
+      </ProcessAccess>
+    </RuleGroup>
+
+    <RuleGroup name="" groupRelation="or">
+      <FileCreate onmatch="include">
+        <TargetFilename condition="contains">\Startup\</TargetFilename>
+        <TargetFilename condition="end with">.ps1</TargetFilename>
+        <TargetFilename condition="end with">.bat</TargetFilename>
+      </FileCreate>
+    </RuleGroup>
+
+    <RuleGroup name="" groupRelation="or">
+      <RegistryEvent onmatch="include">
+        <TargetObject condition="contains">\CurrentVersion\Run</TargetObject>
+        <TargetObject condition="contains">\Services\</TargetObject>
+      </RegistryEvent>
+    </RuleGroup>
+
+  </EventFiltering>
+</Sysmon>

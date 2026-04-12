@@ -1,0 +1,23 @@
+# ccdc-cli auditd ruleset
+# Deployed by: ccdc siem auditd
+# Removed by:  ccdc siem auditd --undo
+# Note: -e 2 (immutable) intentionally NOT set so --undo can reload rules.
+
+-w /etc/passwd   -p wa -k ccdc_identity
+-w /etc/shadow   -p wa -k ccdc_identity
+-w /etc/group    -p wa -k ccdc_identity
+-w /etc/gshadow  -p wa -k ccdc_identity
+
+-w /etc/sudoers   -p wa -k ccdc_sudoers
+-w /etc/sudoers.d -p wa -k ccdc_sudoers
+
+-w /etc/ssh/sshd_config -p wa -k ccdc_ssh
+
+-w /etc/crontab     -p wa -k ccdc_cron
+-w /etc/cron.d      -p wa -k ccdc_cron
+-w /var/spool/cron  -p wa -k ccdc_cron
+
+-a always,exit -F arch=b64 -S execve -F euid=0 -k ccdc_rootexec
+-a always,exit -F arch=b32 -S execve -F euid=0 -k ccdc_rootexec
+
+-a always,exit -F arch=b64 -S init_module -S delete_module -k ccdc_modules
