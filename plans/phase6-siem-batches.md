@@ -36,8 +36,18 @@ Suricata + Zeek for network traffic monitoring. Suricata auto-integrates with th
 - `ccdc siem suricata` -- Linux apt/dnf, Windows requires Npcap + msi. Auto-append eve.json to ossec.conf
 - `ccdc siem zeek` -- Linux apt/dnf, configure node.cfg + networks.cfg
 - `ccdc siem docker` -- Linux apt/dnf docker install + `systemctl enable --now docker`. Used by `wazuh-server` (Batch 2) which prefers the docker path but currently falls back to native packages when docker is absent. Add a pyinfra test that runs `ccdc siem docker` then `ccdc siem wazuh-server` on a fresh host and verifies the `ccdc-wazuh-manager` container comes up. (May be added later.)
+- `ccdc siem wazuh-archives` -- retroactively turn on full forensics on an already-installed wazuh-server. Red team is hot the entire competition, so we want every event captured, not just level >=3 alerts. This subcommand:
+  1. Edits `/var/ossec/etc/ossec.conf` to set `<logall_json>yes</logall_json>` (leave `<logall>no</logall>` -- JSON only, halves disk).
+  2. Drops `/etc/logrotate.d/wazuh-archives` with hourly rotation, `rotate 6`, `compress`, `delaycompress`, `copytruncate`, `maxsize 500M`. `copytruncate` is mandatory -- without it analysisd keeps writing to the rotated inode and rotation silently breaks until restart.
+  3. Drops `/etc/cron.hourly/wazuh-rotate` that force-runs logrotate (default cadence is daily, too slow).
+  4. Drops `/etc/cron.d/wazuh-disk-guard` -- every 5 min, if `/var` is over 85%, delete the 3 oldest `*.gz` archives. Belt-and-suspenders failsafe so disk-fill never takes the SIEM box down.
+  5. Restarts `wazuh-manager` so the logall_json change takes effect.
+  6. Filebeat archives input enable in `/etc/filebeat/filebeat.yml` (`module: wazuh`, `archives.enabled: true`) so the `wazuh-archives-*` indices actually populate.
+  7. Indexer side: ISM policy or hourly cron `curl -XDELETE` against `wazuh-archives-*` older than 6h to keep the indexer from ballooning in parallel.
+  - Undo path: revert ossec.conf to `<logall_json>no</logall_json>`, remove the three rotation/guard files, restart wazuh-manager, disable filebeat archives input.
+  - Test (`phase6.py`): run `ccdc siem wazuh-server` then `ccdc siem wazuh-archives`, confirm `archives.json` exists and is being written, confirm logrotate config parses (`logrotate -d /etc/logrotate.d/wazuh-archives`), confirm `wazuh-archives-*` index appears in the indexer.
 
-**Why third:** Suricata + Zeek depend on Wazuh existing for log forwarding -- Suricata especially needs the ossec.conf integration to be useful. Docker lives here (not Batch 2) so the Wazuh stack stays minimal; Batch 3 retroactively makes wazuh-server's preferred install path reliable.
+**Why third:** Suricata + Zeek depend on Wazuh existing for log forwarding -- Suricata especially needs the ossec.conf integration to be useful. Docker lives here (not Batch 2) so the Wazuh stack stays minimal; Batch 3 retroactively makes wazuh-server's preferred install path reliable. `wazuh-archives` lives here too (not Batch 2) for the same reason: keep the base wazuh-server install minimal and bolt on the high-volume forensics layer once we're confident the stack is healthy.
 
 ---
 

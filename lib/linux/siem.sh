@@ -230,7 +230,7 @@ _siem_wazuh_remove_repo() {
 # package install if docker/compose is unavailable.
 
 CCDC_WAZUH_COMPOSE_DIR="${CCDC_WAZUH_COMPOSE_DIR:-/opt/wazuh-docker}"
-CCDC_WAZUH_VERSION="${CCDC_WAZUH_VERSION:-v4.14.4}"
+CCDC_WAZUH_VERSION="${CCDC_WAZUH_VERSION:-v4.13.1}"
 CCDC_WAZUH_COMPOSE_PROJECT="ccdc-wazuh"
 
 _siem_wazuh_compose_cmd() {
