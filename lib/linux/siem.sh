@@ -312,6 +312,9 @@ ccdc_siem_wazuh_server() {
         echo "compose" > "${snapshot_dir}/install_method"
         echo "$CCDC_WAZUH_COMPOSE_DIR" > "${snapshot_dir}/clone_dir"
 
+        # ip_forward + FORWARD chain required for docker container networking
+        sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+        iptables -P FORWARD ACCEPT 2>/dev/null || true
         # vm.max_map_count is required by the bundled wazuh-indexer
         local current_max_map
         current_max_map="$(sysctl -n vm.max_map_count 2>/dev/null || echo 0)"
@@ -320,7 +323,7 @@ ccdc_siem_wazuh_server() {
         else
             echo "no" > "${snapshot_dir}/sysctl_existed"
             mkdir -p /etc/sysctl.d
-            echo "vm.max_map_count=262144" > /etc/sysctl.d/99-ccdc-wazuh.conf
+            printf "net.ipv4.ip_forward=1\nvm.max_map_count=262144\n" > /etc/sysctl.d/99-ccdc-wazuh.conf
             sysctl -w vm.max_map_count=262144 >/dev/null 2>&1 || true
         fi
 
