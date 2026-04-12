@@ -228,7 +228,7 @@ _siem_wazuh_remove_repo() {
 # Prefers docker (single isolated container, no apt conflict with wazuh-agent
 # on the same host). Falls back to native package install if docker is absent.
 
-CCDC_WAZUH_DOCKER_IMAGE="${CCDC_WAZUH_DOCKER_IMAGE:-wazuh/wazuh-manager:latest}"
+CCDC_WAZUH_DOCKER_IMAGE="${CCDC_WAZUH_DOCKER_IMAGE:-wazuh/wazuh-manager:4.14.0}"
 CCDC_WAZUH_DOCKER_NAME="ccdc-wazuh-manager"
 
 ccdc_siem_wazuh_server() {
