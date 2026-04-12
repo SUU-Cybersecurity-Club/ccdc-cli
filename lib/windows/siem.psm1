@@ -257,10 +257,7 @@ function Get-CcdcSuricataMsi {
     $tempPath = Join-Path $env:TEMP 'Suricata.msi'
     if (Test-Path $tempPath) { return $tempPath }
 
-    Write-CcdcLog 'Bundled Suricata MSI not found; downloading...' -Level Info
-    if (Invoke-CcdcDownload -Url 'https://www.openinfosecfoundation.org/download/suricata-7.0.7-1_64bit.msi' -Output $tempPath) {
-        return $tempPath
-    }
+    Write-CcdcLog 'Bundled Suricata MSI not found. Place Suricata*.msi in bin\windows\' -Level Warn
     return $null
 }
 
@@ -317,19 +314,14 @@ function Invoke-CcdcSiemSuricata {
     # Check/install Npcap
     $npcapPath = 'C:\Program Files\Npcap'
     if (-not (Test-Path $npcapPath)) {
-        Write-CcdcLog 'Npcap not found; downloading...' -Level Info
-        $npcapInstaller = Join-Path $env:TEMP 'npcap-installer.exe'
         $bundledNpcap = Join-Path $global:CCDC_DIR 'bin\windows\npcap-installer.exe'
         if (Test-Path $bundledNpcap) {
-            $npcapInstaller = $bundledNpcap
+            Write-CcdcLog 'Installing bundled Npcap...' -Level Info
+            Start-Process $bundledNpcap -ArgumentList '/S' -Wait -ErrorAction SilentlyContinue
+            Write-CcdcLog 'Npcap installed' -Level Info
         } else {
-            if (-not (Invoke-CcdcDownload -Url 'https://npcap.com/dist/npcap-1.80.exe' -Output $npcapInstaller)) {
-                Write-CcdcLog 'Failed to download Npcap' -Level Error
-                return
-            }
+            Write-CcdcLog 'Npcap not found. Place npcap-installer.exe in bin\windows\' -Level Warn
         }
-        Start-Process $npcapInstaller -ArgumentList '/S' -Wait -ErrorAction SilentlyContinue
-        Write-CcdcLog 'Npcap installed' -Level Info
     }
 
     # Install Suricata
