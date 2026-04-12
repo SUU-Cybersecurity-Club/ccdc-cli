@@ -595,6 +595,13 @@ ccdc_siem_docker() {
     systemctl daemon-reload 2>/dev/null || true
     systemctl enable --now docker 2>/dev/null || true
 
+    # Wait for docker daemon to be ready
+    local retries=0
+    while [[ $retries -lt 5 ]] && ! docker info &>/dev/null; do
+        sleep 2
+        retries=$((retries + 1))
+    done
+
     if docker info &>/dev/null; then
         ccdc_log success "Docker engine running"
     else
